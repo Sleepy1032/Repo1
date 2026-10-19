@@ -1,0 +1,1261 @@
+<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style><title>Pocket Depth</title>
+<meta name="description" content="Make a depth map from a photo on your device, then edit it by distance. Works offline.">
+<meta name="theme-color" content="#14171B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pocket Depth">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+</head><body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column, phone first. Controls on top, the before/after stage as the hero, actions under it. */
+:root {
+  --bg: #ECEEF1;
+  --surface: #FFFFFF;
+  --ink: #14171B;
+  --muted: #59616B;
+  --line: #D2D7DD;
+  --accent: #C2410C;
+  --accent-ink: #FFFFFF;
+  --danger: #B42318;
+  --stage: #1A1D22;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1013; --surface: #171A1F; --ink: #E8EBEE; --muted: #99A2AC; --line: #2B3139;
+    --accent: #F59E0B; --accent-ink: #1A1206; --danger: #F97066; --stage: #050607;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1013; --surface: #171A1F; --ink: #E8EBEE; --muted: #99A2AC; --line: #2B3139;
+  --accent: #F59E0B; --accent-ink: #1A1206; --danger: #F97066; --stage: #050607;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--ink); }
+[hidden] { display: none !important; }
+body {
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+.wrap { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+header { display: flex; flex-direction: column; gap: 4px; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: 1.9rem; line-height: 1.05; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.sub { color: var(--muted); margin: 0; font-size: 0.92rem; }
+.label { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.seg button { all: unset; box-sizing: border-box; cursor: pointer; padding: 10px 12px; border-radius: 7px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.seg button .t { font-weight: 600; }
+.seg button .d { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seg button[aria-pressed="true"] .d { color: var(--bg); opacity: 0.75; }
+.seg button:focus-visible, .btn:focus-visible, .chip:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.panel p { margin: 0; }
+.panel ol { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.panel a { color: var(--accent); font-weight: 500; word-break: break-word; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+
+.btn { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: var(--r); font-weight: 600; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: center; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.wide { width: 100%; padding: 15px 16px; font-size: 1.02rem; }
+.btn.small { padding: 7px 11px; font-size: 0.85rem; font-weight: 500; }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+.file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.stage { position: relative; width: 100%; max-width: 100%; background: var(--stage); border-radius: var(--r); overflow: hidden; touch-action: pan-y; }
+.stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; -webkit-user-drag: none; }
+.stage .depth { clip-path: inset(0 0 0 var(--split, 50%)); }
+.stage .divider { position: absolute; top: 0; bottom: 0; left: var(--split, 50%); width: 2px; margin-left: -1px; background: #FFFFFF; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); pointer-events: none; }
+.stage .tag { position: absolute; top: 10px; font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 7px; border-radius: 5px; background: rgba(0,0,0,0.55); color: #FFFFFF; pointer-events: none; }
+.stage .tag.l { left: 10px; } .stage .tag.r { right: 10px; }
+.stage .example { position: absolute; bottom: 10px; left: 10px; right: 10px; font-size: 0.8rem; color: #FFFFFF; background: rgba(0,0,0,0.55); padding: 6px 9px; border-radius: 6px; pointer-events: none; }
+.split { width: 100%; accent-color: var(--accent); margin: 0; }
+
+.legend { display: flex; flex-direction: column; gap: 4px; }
+.legend .bar { height: 8px; border-radius: 4px; }
+.legend .ends { display: flex; justify-content: space-between; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { all: unset; box-sizing: border-box; cursor: pointer; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: 0.85rem; background: var(--surface); }
+.chip[aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.opts > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.status { display: flex; flex-direction: column; gap: 6px; }
+.status .msg { font-size: 0.9rem; min-height: 1.5em; }
+.status .msg.err { color: var(--danger); }
+.prog { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.prog > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+@media (prefers-reduced-motion: reduce) { .prog > i { transition: none; } }
+footer { color: var(--muted); font-size: 0.8rem; display: flex; flex-direction: column; gap: 4px; }
+
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); }
+.tabs button { all: unset; cursor: pointer; padding: 10px 14px 9px; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.view { display: flex; flex-direction: column; gap: 14px; }
+
+.edit-stage { background: var(--stage); border-radius: var(--r); overflow: hidden; }
+#ecv { display: block; width: 100%; max-width: 100%; height: auto; touch-action: pan-y; cursor: crosshair;
+  background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 16px 16px; }
+:root { --check-a: #B9BEC4; --check-b: #DDE1E5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --check-a: #2A2F35; --check-b: #3A4048; } }
+:root[data-theme="dark"] { --check-a: #2A2F35; --check-b: #3A4048; }
+.hint { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.ctl { display: grid; grid-template-columns: 6.5rem 1fr 2.4rem; gap: 10px; align-items: center; }
+.ctl label { font-size: 0.9rem; }
+.ctl output { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.ctl input { width: 100%; accent-color: var(--accent); margin: 0; }
+.ctls { display: flex; flex-direction: column; gap: 8px; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 0.9rem; color: var(--muted); }
+
+.curve-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.curve-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+#curve { display: block; width: 100%; max-width: 100%; aspect-ratio: 8 / 5; touch-action: none; cursor: crosshair; border-radius: 6px; }
+.looks { display: flex; flex-direction: column; gap: 6px; }
+.layer { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.chip.look { font-weight: 600; }
+.chip .mono { font-size: 0.78rem; }
+.stage3d { position: relative; margin: 0 auto; max-width: 100%; background: var(--stage); border-radius: var(--r); overflow: hidden; }
+#gl { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#gl:active { cursor: grabbing; }
+.stage canvas.depth { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.check input { accent-color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Pocket Depth</h1>
+    <p class="sub">Make a depth map with Depth Anything V2, then edit the photo by distance. Everything runs on this device, and it works offline once saved.</p>
+  </header>
+
+  <div class="seg" role="group" aria-label="Model">
+    <button id="m-small" type="button" aria-pressed="true"><span class="t">Small</span><span class="d">24.8M params · 99 MB</span></button>
+    <button id="m-large" type="button" aria-pressed="false"><span class="t">Large</span><span class="d">335M params · 4-bit · 234 MB</span></button>
+  </div>
+
+  <div class="panel" id="large-panel" hidden>
+    <div class="label">Large model file</div>
+    <p id="large-state" class="muted">Not on this device yet.</p>
+    <ol id="large-steps">
+      <li>Download <a href="https://huggingface.co/onnx-community/depth-anything-v2-large/resolve/main/onnx/model_q4f16.onnx" target="_blank" rel="noopener">model_q4f16.onnx</a> from Hugging Face (234 MB). Wi‑Fi recommended.</li>
+      <li>Choose that file here. It's kept on this device so you only do this once.</li>
+    </ol>
+    <div class="row">
+      <label class="btn small" for="large-file">Choose model file</label>
+      <input class="file-input" type="file" id="large-file" accept=".onnx,application/octet-stream">
+      <button class="btn small" type="button" id="large-forget" hidden>Remove from device</button>
+    </div>
+    <p class="muted" style="font-size:0.82rem">Large needs WebGPU (recent Safari or Chrome) and around 1.5 GB of free memory. If the page reloads mid-run, your phone ran out of memory; use Small.</p>
+  </div>
+
+  <label class="btn primary wide" for="photo" id="pick">Choose a photo</label>
+  <input class="file-input" type="file" id="photo" accept="image/*">
+
+  <div class="status" aria-live="polite">
+    <div class="msg" id="msg">Pick a photo to make its depth map.</div>
+    <div class="prog" id="prog" hidden><i id="bar"></i></div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="View">
+    <button type="button" role="tab" id="tab-depth" aria-selected="true" aria-controls="view-depth">Depth map</button>
+    <button type="button" role="tab" id="tab-edit" aria-selected="false" aria-controls="view-edit">Edit</button>
+    <button type="button" role="tab" id="tab-3d" aria-selected="false" aria-controls="view-3d">3D</button>
+  </div>
+
+  <section class="view" id="view-depth" role="tabpanel" aria-labelledby="tab-depth">
+  <div class="stage" id="stage" style="aspect-ratio: 4 / 3">
+    <img id="img-photo" alt="Original photo" src="data:image/png;base64,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">
+    <img id="img-depth" class="depth" alt="Depth map" src="data:image/png;base64,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">
+    <canvas id="depth-live" class="depth" hidden></canvas>
+    <div class="divider"></div>
+    <span class="tag l">Photo</span><span class="tag r">Depth</span>
+    <div class="example" id="example-note">Example scene. Your result appears here.</div>
+  </div>
+  <input class="split" type="range" id="split" min="0" max="100" value="50" aria-label="Compare photo and depth">
+
+  <div class="opts">
+    <div>
+      <span class="label">Colors</span>
+      <div class="chips" role="group" aria-label="Colors">
+        <button class="chip" type="button" data-cmap="gray" aria-pressed="true">Grayscale</button>
+        <button class="chip" type="button" data-cmap="inferno" aria-pressed="false">Inferno</button>
+      </div>
+    </div>
+    <div>
+      <span class="label">Detail</span>
+      <div class="chips" role="group" aria-label="Detail">
+        <button class="chip" type="button" data-res="518" aria-pressed="true">518 px</button>
+        <button class="chip" type="button" data-res="770" aria-pressed="false">770 px</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="bar" id="legend-bar"></div>
+    <div class="ends label"><span>Far</span><span>Near</span></div>
+  </div>
+
+  <div class="curve-panel">
+    <div class="curve-head">
+      <span class="label">Depth curve</span>
+      <span class="mono muted" id="curve-read">Linear</span>
+    </div>
+    <canvas id="curve" aria-label="Depth curve. Drag the line to remap depth."></canvas>
+    <div class="chips" role="group" aria-label="Curve presets">
+      <button class="chip" type="button" data-curve="reset">Reset</button>
+      <button class="chip" type="button" data-curve="contrast">More contrast</button>
+      <button class="chip" type="button" data-curve="near">Pop subject</button>
+      <button class="chip" type="button" data-curve="far">Flatten background</button>
+      <button class="chip" type="button" data-curve="invert">Invert</button>
+    </div>
+    <p class="hint">Drag the line to bend it. Tap to add a point. Double-tap a point, or drag it out of the box, to remove it. The Edit tab uses the curved depth too.</p>
+  </div>
+
+  <div class="row">
+    <button class="btn" type="button" id="save" disabled>Save depth PNG</button>
+    <span class="muted" id="save-hint" style="font-size:0.85rem">Or press and hold the image to save it.</span>
+  </div>
+  </section>
+
+  <section class="view" id="view-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
+    <div class="edit-stage"><canvas id="ecv" aria-label="Edited photo. Tap to set the focus depth."></canvas></div>
+    <p class="hint" id="edit-hint">Tap the image to focus at that distance. In Tilt-shift, tap to move the sharp band. In Parallax, drag sideways.</p>
+
+    <div class="looks">
+      <span class="label">Looks</span>
+      <div class="chips" role="group" aria-label="Looks">
+        <button class="chip look" type="button" data-look="f18" aria-pressed="false">Portrait <span class="mono">f/1.8</span></button>
+        <button class="chip look" type="button" data-look="f4" aria-pressed="false">Portrait <span class="mono">f/4</span></button>
+        <button class="chip look" type="button" data-look="macro" aria-pressed="false">Macro</button>
+        <button class="chip look" type="button" data-look="tilt" aria-pressed="false">Tilt-shift</button>
+      </div>
+    </div>
+
+    <span class="label">Effect</span>
+    <div class="chips" role="group" aria-label="Effect">
+      <button class="chip" type="button" data-mode="lens" aria-pressed="true">Lens blur</button>
+      <button class="chip" type="button" data-mode="tilt" aria-pressed="false">Tilt-shift</button>
+      <button class="chip" type="button" data-mode="cut" aria-pressed="false">Cut out</button>
+      <button class="chip" type="button" data-mode="fog" aria-pressed="false">Fog</button>
+      <button class="chip" type="button" data-mode="grade" aria-pressed="false">Near/far grade</button>
+      <button class="chip" type="button" data-mode="par" aria-pressed="false">Parallax</button>
+    </div>
+
+    <div class="ctls">
+      <div class="ctl"><label for="e-f" id="e-f-label">Focus depth</label><input id="e-f" type="range" min="0" max="100" value="55"><output for="e-f"></output></div>
+      <div class="ctl" id="e-wrow"><label for="e-w">Focus width</label><input id="e-w" type="range" min="0" max="100" value="20"><output for="e-w"></output></div>
+      <div class="ctl"><label for="e-sn">Edge snap</label><input id="e-sn" type="range" min="0" max="100" value="30"><output for="e-sn"></output></div>
+      <div class="ctl"><label for="e-st">Strength</label><input id="e-st" type="range" min="0" max="100" value="70"><output for="e-st"></output></div>
+      <div class="ctl"><label for="e-so">Softness</label><input id="e-so" type="range" min="0" max="100" value="30"><output for="e-so"></output></div>
+    </div>
+
+    <div class="layer" id="e-grow">
+      <label class="check"><input type="checkbox" id="e-gr"> Add near/far grade on top</label>
+      <div class="ctl" id="e-gsrow" hidden><label for="e-gs">Grade strength</label><input id="e-gs" type="range" min="0" max="100" value="50"><output for="e-gs"></output></div>
+    </div>
+
+    <div class="row">
+      <span class="label">Size</span>
+      <div class="chips" role="group" aria-label="Edit size">
+        <button class="chip" type="button" data-eres="720" aria-pressed="false">720</button>
+        <button class="chip" type="button" data-eres="1080" aria-pressed="true">1080</button>
+        <button class="chip" type="button" data-eres="1600" aria-pressed="false">1600</button>
+        <button class="chip" type="button" data-eres="2400" aria-pressed="false">2400</button>
+      </div>
+      <label class="check"><input type="checkbox" id="e-sd"> Show depth</label>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" type="button" id="e-save">Save edit PNG</button>
+      <span class="muted" id="e-save-note" style="font-size:0.85rem"></span>
+    </div>
+    <img id="e-out" alt="Edited photo to save" hidden style="border-radius: var(--r)">
+  </section>
+
+  <section class="view" id="view-3d" role="tabpanel" aria-labelledby="tab-3d" hidden>
+    <div class="stage3d" id="stage3d"><canvas id="gl" aria-label="3D view of the photo. Drag to tilt it."></canvas></div>
+    <p class="hint" id="d3-hint">Drag the photo to tilt it in 3D. Shape it with the depth curve on the Depth map tab.</p>
+    <div class="ctls">
+      <div class="ctl"><label for="d3-amt">Depth</label><input id="d3-amt" type="range" min="0" max="100" value="45"><output for="d3-amt"></output></div>
+      <div class="ctl"><label for="d3-zoom">Zoom</label><input id="d3-zoom" type="range" min="0" max="100" value="20"><output for="d3-zoom"></output></div>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="d3-wobble"> Auto wobble</label>
+      <button class="btn small" type="button" id="d3-reset">Reset view</button>
+      <button class="btn primary" type="button" id="d3-save">Save snapshot</button>
+      <span class="muted" id="d3-note" style="font-size:0.85rem"></span>
+    </div>
+    <img id="d3-out" alt="3D snapshot to save" hidden style="border-radius: var(--r)">
+  </section>
+
+  <footer>
+    <div class="row" id="offline-row">
+      <span id="offline-state" class="mono">Offline: checking…</span>
+      <button class="btn small" type="button" id="offline-get" hidden>Save for offline use (121 MB)</button>
+    </div>
+    <span id="backend" class="mono">Engine: not loaded</span>
+    <span>Relative depth: brighter is closer. Models by Depth Anything V2 (Apache‑2.0 Small, CC‑BY‑NC‑4.0 Large), ONNX builds by onnx-community.</span>
+  </footer>
+</div>
+
+<script type="module">
+import * as ort from "./vendor/ort.webgpu.bundle.min.mjs";
+
+// Binary files sit next to the page; the service worker (sw.js) keeps them for offline use.
+const ASSET_CACHE = "pd-assets-v1";
+const FILES = {
+  wasm:  { url: "vendor/ort-wasm-simd-threaded.jsep.wasm", size: 21872216 },
+  small: { url: "models/depth-anything-v2-small.onnx",     size: 99060839 },
+};
+const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225];
+const MAX_OUT = 4096;
+
+const $ = (id) => document.getElementById(id);
+const state = { model: "small", cmap: "gray", res: 518, depth: null, busy: false, file: null, sessions: {}, backend: null, wasmReady: false };
+
+// ---------- tiny IndexedDB cache (best effort) ----------
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open("pocket-depth", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("blobs");
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) { rej(e); }
+  });
+}
+async function cacheGet(key) {
+  try { const db = await idb(); return await new Promise((res) => { const q = db.transaction("blobs").objectStore("blobs").get(key); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); }
+  catch { return null; }
+}
+async function cachePut(key, val) {
+  try { const db = await idb(); return await new Promise((res) => { const t = db.transaction("blobs", "readwrite"); t.objectStore("blobs").put(val, key); t.oncomplete = () => res(true); t.onerror = () => res(false); t.onabort = () => res(false); }); }
+  catch { return false; }
+}
+async function cacheDel(key) {
+  try { const db = await idb(); await new Promise((res) => { const t = db.transaction("blobs", "readwrite"); t.objectStore("blobs").delete(key); t.oncomplete = res; t.onerror = res; }); }
+  catch {}
+}
+
+// ---------- status ----------
+function say(text, err = false) { const m = $("msg"); m.textContent = text; m.classList.toggle("err", err); }
+function progress(frac) { $("prog").hidden = frac == null; $("bar").style.width = `${Math.round((frac || 0) * 100)}%`; }
+
+// ---------- fetch chunked published files ----------
+function decodeB64(s) {
+  if (Uint8Array.fromBase64) return Uint8Array.fromBase64(s);
+  const bin = atob(s), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+// Safari can lose Blobs kept in IndexedDB ("The object can not be found here"), so the
+// cache holds plain ArrayBuffers, and any unreadable entry is dropped and re-downloaded.
+async function readCached(key) {
+  const v = await cacheGet(key);
+  if (!v) return null;
+  try {
+    const buf = v instanceof ArrayBuffer ? v : await v.arrayBuffer();
+    return new Uint8Array(buf);
+  } catch (e) { console.warn("cache entry unreadable, dropping", key, e); await cacheDel(key); return null; }
+}
+const sizeOf = (v) => (v ? (v.byteLength ?? v.size ?? 0) : 0);
+
+async function fetchFile(spec, label, keep = true) {
+  const total = spec.size, mb = (n) => (n / 1e6).toFixed(0);
+  say(`Loading ${label}… 0 of ${mb(total)} MB`); progress(0);
+  let r;
+  try { r = await fetch(spec.url); }
+  catch { throw new Error(`Couldn't load the ${label}. Connect once to save it for offline use.`); }
+  if (!r.ok) throw new Error(`Couldn't load the ${label} (HTTP ${r.status}).`);
+  const out = keep ? new Uint8Array(total) : null;
+  const reader = r.body.getReader();
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (got + value.length > total) throw new Error(`The ${label} is not the expected file.`);
+    if (out) out.set(value, got);
+    got += value.length;
+    say(`Loading ${label}… ${mb(got)} of ${mb(total)} MB`); progress(got / total);
+  }
+  if (got !== total) throw new Error(`The ${label} download was incomplete. Check your connection and try again.`);
+  return out;
+}
+async function dropCachedAssets() {
+  try { const c = await caches.open(ASSET_CACHE); for (const s of Object.values(FILES)) await c.delete(s.url); } catch {}
+}
+
+async function hasWebGPU() {
+  try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { return false; }
+}
+
+async function ensureRuntime() {
+  if (state.wasmReady) return;
+  const bin = await fetchFile(FILES.wasm, "engine");
+  ort.env.wasm.wasmBinary = bin.buffer;
+  ort.env.wasm.numThreads = 1;
+  ort.env.wasm.proxy = false;
+  state.wasmReady = true;
+}
+
+async function getSession(which) {
+  if (state.sessions[which]) return state.sessions[which];
+  await ensureRuntime();
+  let bytes;
+  if (which === "small") {
+    bytes = await fetchFile(FILES.small, "Small model");
+  } else {
+    say("Reading Large model from this device…"); progress(null);
+    bytes = state.largeFallback ? new Uint8Array(state.largeFallback) : await readCached("large-model");
+    if (!bytes) { await cacheDel("large-model-size"); refreshLarge(); throw new Error("Choose the Large model file (see the steps above). If you already did, this device dropped it; choose it again."); }
+  }
+  say(`Starting ${which === "small" ? "Small" : "Large"} model…`); progress(null);
+  const gpu = await hasWebGPU();
+  let session = null, backend = null, firstErr = null;
+  if (gpu) {
+    try { session = await ort.InferenceSession.create(bytes, { executionProviders: ["webgpu"], graphOptimizationLevel: "all" }); backend = "WebGPU"; }
+    catch (e) { firstErr = e; console.warn("WebGPU failed", e); }
+  }
+  if (!session) {
+    if (which === "large") throw new Error(gpu ? `Large couldn't start on this GPU (${(firstErr && firstErr.message || "unknown error").slice(0, 120)}). Use Small.` : "Large needs WebGPU, which this browser doesn't have. Use Small, or update Safari/Chrome.");
+    session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    backend = "CPU (slower)";
+  }
+  state.backend = backend;
+  $("backend").textContent = `Engine: ONNX Runtime Web 1.22 · ${backend} · ${which === "small" ? "Small fp32" : "Large q4f16"}`;
+  state.sessions[which] = session;
+  return session;
+}
+
+// ---------- pre / post processing ----------
+function targetSize(w, h, base) {
+  let sh = base / h, sw = base / w;
+  if (Math.abs(1 - sw) < Math.abs(1 - sh)) sh = sw; else sw = sh;
+  const mult = (v) => Math.max(14, Math.round(v / 14) * 14);
+  return { tw: mult(w * sw), th: mult(h * sh) };
+}
+
+function toHalf(f) {
+  const b = new DataView(new ArrayBuffer(4)); b.setFloat32(0, f);
+  const x = b.getUint32(0);
+  const s = (x >>> 16) & 0x8000, e = ((x >>> 23) & 0xff) - 112, m = x & 0x7fffff;
+  if (e <= 0) return s; if (e >= 31) return s | 0x7c00;
+  return s | (e << 10) | (m >>> 13);
+}
+function fromHalf(h) {
+  const s = h & 0x8000 ? -1 : 1, e = (h >>> 10) & 0x1f, m = h & 0x3ff;
+  if (e === 0) return s * Math.pow(2, -14) * (m / 1024);
+  if (e === 31) return m ? NaN : s * Infinity;
+  return s * Math.pow(2, e - 15) * (1 + m / 1024);
+}
+
+async function predict(session, bitmap) {
+  const { tw, th } = targetSize(bitmap.width, bitmap.height, state.res);
+  const c = new OffscreenCanvas(tw, th), g = c.getContext("2d");
+  g.imageSmoothingQuality = "high"; g.drawImage(bitmap, 0, 0, tw, th);
+  const px = g.getImageData(0, 0, tw, th).data, n = tw * th;
+  const f32 = new Float32Array(3 * n);
+  for (let i = 0; i < n; i++) for (let ch = 0; ch < 3; ch++) f32[ch * n + i] = (px[i * 4 + ch] / 255 - MEAN[ch]) / STD[ch];
+  const name = session.inputNames[0];
+  let out;
+  try {
+    out = await session.run({ [name]: new ort.Tensor("float32", f32, [1, 3, th, tw]) });
+  } catch (e) {
+    if (!/float16|type/i.test(String(e && e.message))) throw e;
+    const u16 = new Uint16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) u16[i] = toHalf(f32[i]);
+    out = await session.run({ [name]: new ort.Tensor("float16", u16, [1, 3, th, tw]) });
+  }
+  const t = out[session.outputNames[0]];
+  const dims = t.dims, oh = dims[dims.length - 2], ow = dims[dims.length - 1];
+  let d = t.data;
+  if (t.type === "float16" && d instanceof Uint16Array) { const f = new Float32Array(d.length); for (let i = 0; i < d.length; i++) f[i] = fromHalf(d[i]); d = f; }
+  else d = Float32Array.from(d);
+  let lo = Infinity, hi = -Infinity;
+  for (const v of d) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const span = hi - lo || 1;
+  for (let i = 0; i < d.length; i++) d[i] = (d[i] - lo) / span;
+  if (t.dispose) t.dispose();
+  return { data: d, w: ow, h: oh };
+}
+
+// Inferno approximation (polynomial fit of matplotlib's inferno).
+function inferno(t) {
+  const c0 = [0.0002189, 0.0016510, -0.0194809], c1 = [0.1065134, 0.5639564, 3.9327123], c2 = [11.6024930, -3.9728532, -15.9423941],
+        c3 = [-41.7039961, 17.4363988, 44.3541457], c4 = [77.1629357, -33.4023589, -81.8073092], c5 = [-71.3194284, 32.6260660, 73.2095198], c6 = [25.1311262, -12.2426671, -23.0703250];
+  return [0, 1, 2].map((k) => Math.max(0, Math.min(1, c0[k] + t * (c1[k] + t * (c2[k] + t * (c3[k] + t * (c4[k] + t * (c5[k] + t * c6[k])))))) * 255));
+}
+const LUT = { gray: [], inferno: [] };
+for (let i = 0; i < 256; i++) { LUT.gray.push([i, i, i]); LUT.inferno.push(inferno(i / 255)); }
+
+function legend() {
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((t) => { const [r, g, b] = LUT[state.cmap][Math.round(t * 255)]; return `rgb(${r|0},${g|0},${b|0}) ${t * 100}%`; });
+  $("legend-bar").style.background = `linear-gradient(90deg, ${stops.join(",")})`;
+}
+
+// ---------- depth curve ----------
+// Control points in [0,1]²; x = model depth (0 far … 1 near), y = remapped depth.
+// Monotone cubic (Fritsch–Carlson) so the curve never overshoots between points.
+const curve = { pts: [[0, 0], [1, 1]], lut: new Float32Array(1024), version: 0 };
+function buildCurveLut() {
+  const p = curve.pts, n = p.length, d = [], m = new Array(n).fill(0);
+  for (let i = 0; i < n - 1; i++) d.push((p[i + 1][1] - p[i][1]) / Math.max(1e-6, p[i + 1][0] - p[i][0]));
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  let seg = 0;
+  for (let k = 0; k < 1024; k++) {
+    const x = k / 1023;
+    while (seg < n - 2 && x > p[seg + 1][0]) seg++;
+    const [x0, y0] = p[seg], [x1, y1] = p[seg + 1], h = x1 - x0 || 1e-6, t = Math.min(1, Math.max(0, (x - x0) / h));
+    const t2 = t * t, t3 = t2 * t;
+    const y = (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * h * m[seg] + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * h * m[seg + 1];
+    curve.lut[k] = Math.min(1, Math.max(0, y));
+  }
+  curve.version++;
+}
+buildCurveLut();
+const isLinear = () => curve.pts.length === 2 && curve.pts[0][1] === 0 && curve.pts[1][1] === 1;
+// The depth everything else uses: the model output passed through the curve (cached per curve version).
+let curvedCache = { src: null, version: -1, data: null };
+function curvedDepth() {
+  const D = state.depth; if (!D) return null;
+  if (isLinear()) return D;
+  if (curvedCache.src !== D || curvedCache.version !== curve.version) {
+    const o = new Float32Array(D.data.length), L = curve.lut;
+    for (let i = 0; i < o.length; i++) o[i] = L[Math.round(D.data[i] * 1023)];
+    curvedCache = { src: D, version: curve.version, data: o };
+  }
+  return { ...D, data: curvedCache.data };
+}
+
+let depthURL = null, photoURL = null;
+function paintDepth(ctx, C) {
+  const im = ctx.createImageData(C.w, C.h), lut = LUT[state.cmap];
+  for (let i = 0; i < C.data.length; i++) { const [r, g, b] = lut[Math.round(C.data[i] * 255)]; im.data[i * 4] = r; im.data[i * 4 + 1] = g; im.data[i * 4 + 2] = b; im.data[i * 4 + 3] = 255; }
+  ctx.putImageData(im, 0, 0);
+}
+// Cheap preview while dragging the curve: model-resolution canvas laid over the image.
+function previewDepth() {
+  const C = curvedDepth(); if (!C) return;
+  const cv = $("depth-live"); if (cv.width !== C.w || cv.height !== C.h) { cv.width = C.w; cv.height = C.h; }
+  paintDepth(cv.getContext("2d"), C);
+  cv.hidden = false;
+}
+async function renderDepth() {
+  const D = curvedDepth(); if (!D) return;
+  if (state.isExample) {
+    // Example scene: paint synchronously and use data URLs so the picture is in the very first frame.
+    const mk = (w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+    const sm = mk(D.w, D.h); paintDepth(sm.getContext("2d"), D);
+    const bg2 = mk(D.outW, D.outH), g2 = bg2.getContext("2d");
+    g2.imageSmoothingQuality = "high"; g2.drawImage(sm, 0, 0, D.outW, D.outH);
+    const dimg = $("img-depth");
+    dimg.onload = () => { $("depth-live").hidden = true; dimg.onload = null; };
+    dimg.src = bg2.toDataURL("image/png");
+    bg2.toBlob((b) => { if (b && state.isExample) state.depthBlob = b; }, "image/png");
+    drawCurve();
+    return;
+  }
+  const small = new OffscreenCanvas(D.w, D.h), sg = small.getContext("2d");
+  paintDepth(sg, D);
+  const big = new OffscreenCanvas(D.outW, D.outH), bg = big.getContext("2d");
+  bg.imageSmoothingQuality = "high"; bg.drawImage(small, 0, 0, D.outW, D.outH);
+  const blob = await big.convertToBlob({ type: "image/png" });
+  if (depthURL) URL.revokeObjectURL(depthURL);
+  depthURL = URL.createObjectURL(blob);
+  state.depthBlob = blob;
+  const img = $("img-depth");
+  img.onload = () => { $("depth-live").hidden = true; img.onload = null; };
+  img.src = depthURL;
+  drawCurve();
+}
+
+// ---------- example scene (shown before the first run) ----------
+function drawExample() {
+  const W = 480, H = 360;
+  const photo = document.createElement("canvas"); photo.width = W; photo.height = H;
+  const pg = photo.getContext("2d");
+  const pim = pg.createImageData(W, H), zbuf = new Float32Array(W * H);
+  const spheres = [{ x: 150, y: 210, r: 95, c: [214, 120, 60] }, { x: 340, y: 170, r: 60, c: [70, 130, 190] }];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let z = y > 230 ? 0.25 + 0.55 * (y - 230) / (H - 230) : 0.08 + 0.1 * (y / 230);
+    let col = y > 230 ? [120, 110, 100] : [205, 205, 212];
+    let lit = y > 230 ? 0.75 + 0.25 * (y - 230) / (H - 230) : 0.95;
+    for (const s of spheres) {
+      const dx = (x - s.x) / s.r, dy = (y - s.y) / s.r, q = 1 - dx * dx - dy * dy;
+      if (q > 0) { const nz = Math.sqrt(q); const zz = (s.r === 95 ? 0.72 : 0.45) + 0.25 * nz; if (zz > z) { z = zz; col = s.c; lit = Math.max(0.15, -0.45 * dx - 0.55 * dy + 0.7 * nz); } }
+    }
+    const i = (y * W + x) * 4;
+    pim.data[i] = col[0] * lit; pim.data[i + 1] = col[1] * lit; pim.data[i + 2] = col[2] * lit; pim.data[i + 3] = 255;
+    zbuf[y * W + x] = Math.min(1, z);
+  }
+  pg.putImageData(pim, 0, 0);
+  state.photo = photo; state.isExample = true;
+  state.depth = { data: zbuf, w: W, h: H, outW: W, outH: H };
+  $("img-photo").src = photo.toDataURL("image/png");
+  renderDepth();
+  depthChanged();
+}
+
+// ---------- run ----------
+async function run() {
+  if (!state.file) return;
+  if (state.busy) { state.again = true; return; }
+  state.again = false;
+  state.busy = true; $("pick").setAttribute("aria-disabled", "true"); $("save").disabled = true;
+  try {
+    const session = await getSession(state.model);
+    say("Reading photo…"); progress(null);
+    const bitmap = await createImageBitmap(state.file, { imageOrientation: "from-image" });
+    const k = Math.min(1, MAX_OUT / Math.max(bitmap.width, bitmap.height));
+    const outW = Math.round(bitmap.width * k), outH = Math.round(bitmap.height * k);
+    if (photoURL) URL.revokeObjectURL(photoURL);
+    photoURL = URL.createObjectURL(state.file);
+    say(`Estimating depth with ${state.model === "small" ? "Small" : "Large"} on ${state.backend}…`);
+    const t0 = performance.now();
+    const D = await predict(session, bitmap);
+    if (state.photo && state.photo !== bitmap && state.photo.close) state.photo.close();
+    state.photo = bitmap; state.isExample = false;
+    state.depth = { ...D, outW, outH };
+    depthChanged();
+    $("example-note").hidden = true;
+    $("stage").style.aspectRatio = `${outW} / ${outH}`;
+    $("img-photo").src = photoURL;
+    await renderDepth();
+    state.retried = false;
+    say(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s · ${D.w}×${D.h} depth, saved at ${outW}×${outH}.`);
+    $("save").disabled = false;
+  } catch (e) {
+    console.error(e);
+    if (unreadable(e) && !state.retried) {
+      // Safari lost something we cached. Clear the cache and run once more from fresh downloads.
+      state.retried = true; state.again = true;
+      await dropCachedAssets();
+      say("Refreshing the saved model and trying again…");
+    } else {
+      state.retried = false;
+      say(unreadable(e) ? "This device keeps losing the saved files. Close other tabs, then reload the page and try again." : (e && e.message ? e.message : "Something went wrong. Try again, or switch to Small."), true);
+    }
+  } finally {
+    progress(null); state.busy = false; $("pick").removeAttribute("aria-disabled"); offlineStatus();
+    if (state.again) run();
+  }
+}
+
+// ---------- editor: effects driven by the depth map (from Depth Editor) ----------
+const editor = (() => {
+  const cv = $("ecv"), cx = cv.getContext("2d");
+  let M = 1080, W = 0, H = 0, src = null, dep = null, depRaw = null, levels = null, pan = 0.6, mode = "lens", dirty = true;
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  const sm = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+  const val = (id) => $(id).value / 100;
+  const visible = () => !$("view-edit").hidden;
+
+  function boxBlur(d, w, h, r) {
+    const t = new Uint8ClampedArray(d.length), o = new Uint8ClampedArray(d.length), n = 2 * r + 1;
+    for (let y = 0; y < h; y++) for (let c = 0; c < 3; c++) { let s = 0; for (let i = -r; i <= r; i++) s += d[(y * w + clamp(i, 0, w - 1)) * 4 + c];
+      for (let x = 0; x < w; x++) { t[(y * w + x) * 4 + c] = s / n; s += d[(y * w + Math.min(x + r + 1, w - 1)) * 4 + c] - d[(y * w + Math.max(x - r, 0)) * 4 + c]; } }
+    for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) { let s = 0; for (let i = -r; i <= r; i++) s += t[(clamp(i, 0, h - 1) * w + x) * 4 + c];
+      for (let y = 0; y < h; y++) { o[(y * w + x) * 4 + c] = s / n; s += t[(Math.min(y + r + 1, h - 1) * w + x) * 4 + c] - t[(Math.max(y - r, 0) * w + x) * 4 + c]; } }
+    for (let i = 3; i < o.length; i += 4) o[i] = 255;
+    return o;
+  }
+  function boxF(a, w, h, r) {
+    const t = new Float32Array(a.length), o = new Float32Array(a.length), n = 2 * r + 1;
+    for (let y = 0; y < h; y++) { let s = 0; for (let i = -r; i <= r; i++) s += a[y * w + clamp(i, 0, w - 1)];
+      for (let x = 0; x < w; x++) { t[y * w + x] = s / n; s += a[y * w + Math.min(x + r + 1, w - 1)] - a[y * w + Math.max(x - r, 0)]; } }
+    for (let x = 0; x < w; x++) { let s = 0; for (let i = -r; i <= r; i++) s += t[clamp(i, 0, h - 1) * w + x];
+      for (let y = 0; y < h; y++) { o[y * w + x] = s / n; s += t[Math.min(y + r + 1, h - 1) * w + x] - t[Math.max(y - r, 0) * w + x]; } }
+    return o;
+  }
+  // Snaps depth edges to the photo's edges (guided filter).
+  function guided(p, r) {
+    const n = W * H, I = new Float32Array(n), Ip = new Float32Array(n), II = new Float32Array(n), d = src.data;
+    for (let i = 0; i < n; i++) { const g = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255; I[i] = g; Ip[i] = g * p[i]; II[i] = g * g; }
+    const mI = boxF(I, W, H, r), mp = boxF(p, W, H, r), mIp = boxF(Ip, W, H, r), mII = boxF(II, W, H, r), a = new Float32Array(n), b = new Float32Array(n);
+    for (let i = 0; i < n; i++) { a[i] = (mIp[i] - mI[i] * mp[i]) / (mII[i] - mI[i] * mI[i] + 1e-3); b[i] = mp[i] - a[i] * mI[i]; }
+    const ma = boxF(a, W, H, r), mb = boxF(b, W, H, r), o = new Float32Array(n);
+    for (let i = 0; i < n; i++) o[i] = clamp(ma[i] * I[i] + mb[i]);
+    return o;
+  }
+  // Bilinear resample of the model's float depth to the edit size (no 8-bit banding).
+  function resample(D, w, h) {
+    const o = new Float32Array(w * h), sx = D.w / w, sy = D.h / h;
+    for (let y = 0; y < h; y++) {
+      const fy = clamp((y + 0.5) * sy - 0.5, 0, D.h - 1), y0 = Math.floor(fy), y1 = Math.min(y0 + 1, D.h - 1), ty = fy - y0;
+      for (let x = 0; x < w; x++) {
+        const fx = clamp((x + 0.5) * sx - 0.5, 0, D.w - 1), x0 = Math.floor(fx), x1 = Math.min(x0 + 1, D.w - 1), tx = fx - x0;
+        const a = D.data[y0 * D.w + x0] * (1 - tx) + D.data[y0 * D.w + x1] * tx, b = D.data[y1 * D.w + x0] * (1 - tx) + D.data[y1 * D.w + x1] * tx;
+        o[y * w + x] = a * (1 - ty) + b * ty;
+      }
+    }
+    return o;
+  }
+
+  function build() {
+    if (!state.photo || !state.depth) return;
+    const iw = state.photo.width, ih = state.photo.height, k = Math.min(1, M / Math.max(iw, ih));
+    W = Math.round(iw * k); H = Math.round(ih * k); cv.width = W; cv.height = H;
+    const t = new OffscreenCanvas(W, H), c = t.getContext("2d");
+    c.imageSmoothingQuality = "high"; c.drawImage(state.photo, 0, 0, W, H);
+    src = c.getImageData(0, 0, W, H);
+    depRaw = resample(curvedDepth(), W, H);
+    levels = null; dirty = false;
+    refine();
+  }
+  function refine() { if (!depRaw) return; const r = Math.round(val("e-sn") * Math.max(W, H) * 0.012); dep = r ? guided(depRaw, r) : depRaw; render(); }
+  // Blur pyramid: sharp + 4 blur levels, radii scaled to the edit size so f/1.8 looks the same at 720 or 2400 px.
+  function getLevels() {
+    if (!levels) { const s = Math.max(W, H) / 1080; levels = [src.data, ...[2, 5, 10, 18].map((r) => { r = Math.max(1, Math.round(r * s)); return boxBlur(boxBlur(src.data, W, H, r), W, H, r); })]; }
+    return levels;
+  }
+  function mixLevels(o, L, i, a) {
+    const l = Math.min(3, Math.floor(a)), t = a - l, A = L[l], B = L[l + 1];
+    for (let c = 0; c < 4; c++) o[i * 4 + c] = A[i * 4 + c] * (1 - t) + B[i * 4 + c] * t;
+  }
+  // Focus on the subject: median depth of the centre of the frame.
+  function autoFocus() {
+    if (!dep) return 0.5;
+    const v = [];
+    for (let y = Math.floor(H * 0.3); y < H * 0.7; y += 2) for (let x = Math.floor(W * 0.3); x < W * 0.7; x += 2) v.push(dep[y * W + x]);
+    v.sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)] ?? 0.5;
+  }
+
+  function render() {
+    if (!src) return;
+    ["e-f", "e-w", "e-sn", "e-st", "e-so"].forEach((id) => { $(id).nextElementSibling.textContent = $(id).value; });
+    $("e-wrow").hidden = mode !== "lens" && mode !== "tilt";
+    $("e-f-label").textContent = mode === "tilt" ? "Focus row" : "Focus depth";
+    const out = cx.createImageData(W, H), o = out.data, s = src.data, f = val("e-f"), st = val("e-st"), sw = val("e-so") * 0.5 + 0.02;
+    if ($("e-sd").checked) {
+      for (let i = 0; i < dep.length; i++) { const v = dep[i] * 255; o[i * 4] = o[i * 4 + 1] = o[i * 4 + 2] = v; o[i * 4 + 3] = 255; }
+      cx.putImageData(out, 0, 0); return;
+    }
+    if (mode === "lens") {
+      const L = getLevels(), wd = val("e-w") * 0.5, k = 4 * clamp(st * 1.25);
+      for (let i = 0; i < dep.length; i++) mixLevels(o, L, i, sm(0, 1, (Math.abs(dep[i] - f) - wd) / (sw * 2 + 0.05)) * k);
+    } else if (mode === "tilt") {
+      // Miniature look: sharp horizontal band at the focus row, blur growing above and below, punchier colour.
+      const L = getLevels(), wd = val("e-w") * 0.5, k = 4 * clamp(st * 1.25), sat = 1 + 0.45 * st;
+      for (let y = 0; y < H; y++) {
+        const a = sm(0, 1, (Math.abs(y / H - f) - wd) / (sw * 2 + 0.05)) * k;
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x; mixLevels(o, L, i, a);
+          const r = o[i * 4], g = o[i * 4 + 1], b = o[i * 4 + 2], l = 0.3 * r + 0.59 * g + 0.11 * b;
+          o[i * 4] = l + (r - l) * sat; o[i * 4 + 1] = l + (g - l) * sat; o[i * 4 + 2] = l + (b - l) * sat;
+        }
+      }
+    } else if (mode === "cut") {
+      for (let i = 0; i < dep.length; i++) { const a = sm(f - sw, f + sw, dep[i]); o[i * 4] = s[i * 4]; o[i * 4 + 1] = s[i * 4 + 1]; o[i * 4 + 2] = s[i * 4 + 2]; o[i * 4 + 3] = 255 * a; }
+    } else if (mode === "fog") {
+      const fc = [205, 215, 222];
+      for (let i = 0; i < dep.length; i++) { const a = st * (1 - sm(f - sw, f + sw, dep[i])); for (let c = 0; c < 3; c++) o[i * 4 + c] = s[i * 4 + c] * (1 - a) + fc[c] * a; o[i * 4 + 3] = 255; }
+    } else if (mode === "grade") {
+      for (let i = 0; i < dep.length; i++) gradePixel(o, s, i, sm(f - sw, f + sw, dep[i]), st);
+    } else {
+      const sc = st * W * 0.06;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x, sx = clamp(Math.round(x - pan * (dep[i] - f) * sc), 0, W - 1), j = y * W + sx;
+        o[i * 4] = s[j * 4]; o[i * 4 + 1] = s[j * 4 + 1]; o[i * 4 + 2] = s[j * 4 + 2]; o[i * 4 + 3] = 255;
+      }
+    }
+    // Optional layer: near/far grade on top of the blur (or fog/parallax). It splits near from far
+    // at the focus depth; tilt-shift focuses on a row, so there it splits at the subject's depth.
+    const layerable = mode !== "grade" && mode !== "cut";
+    $("e-grow").hidden = !layerable;
+    $("e-gsrow").hidden = !$("e-gr").checked;
+    $("e-gs").nextElementSibling.textContent = $("e-gs").value;
+    if (layerable && $("e-gr").checked) {
+      const gs = val("e-gs"), split = mode === "tilt" ? subjectDepth() : f;
+      for (let i = 0; i < dep.length; i++) gradePixel(o, o, i, sm(split - sw, split + sw, dep[i]), gs);
+    }
+    cx.putImageData(out, 0, 0);
+  }
+
+  // Near/far grade: near gets warmer and more saturated, far gets cooler and more muted.
+  function gradePixel(o, s, i, n, st) {
+    const r = s[i * 4], g = s[i * 4 + 1], b = s[i * 4 + 2], y = 0.3 * r + 0.59 * g + 0.11 * b,
+          sat = n * (1 + st * 0.7) + (1 - n) * (1 - st * 0.7);
+    let R = y + (r - y) * sat, G = y + (g - y) * sat, B = y + (b - y) * sat;
+    R += (n - 0.5) * st * 40; B -= (n - 0.5) * st * 40;
+    o[i * 4] = R; o[i * 4 + 1] = G; o[i * 4 + 2] = B; o[i * 4 + 3] = 255;
+  }
+  let subj = { dep: null, v: 0.5 };
+  function subjectDepth() { if (subj.dep !== dep) subj = { dep, v: autoFocus() }; return subj.v; }
+
+  function pick(e) {
+    if (!dep) return;
+    const r = cv.getBoundingClientRect(), x = clamp(Math.floor((e.clientX - r.left) / r.width * W), 0, W - 1), y = clamp(Math.floor((e.clientY - r.top) / r.height * H), 0, H - 1);
+    if (mode === "par") pan = (x / W - 0.5) * 2;
+    else if (mode === "tilt") $("e-f").value = Math.round(y / H * 100);
+    else $("e-f").value = Math.round(dep[y * W + x] * 100);
+    render();
+  }
+
+  // One-tap looks. Focus for the lens looks is placed on the subject automatically.
+  const LOOKS = {
+    f18:   { mode: "lens", w: 5,  st: 100, so: 16, focus: "auto" },
+    f4:    { mode: "lens", w: 16, st: 62,  so: 30, focus: "auto" },
+    macro: { mode: "lens", w: 1,  st: 100, so: 6,  focus: "auto" },
+    tilt:  { mode: "tilt", w: 10, st: 90,  so: 22, focus: 55 },
+  };
+  function applyLook(name) {
+    const L = LOOKS[name]; if (!L) return;
+    mode = L.mode; setPressed("[data-mode]", document.querySelector(`[data-mode="${mode}"]`));
+    $("e-w").value = L.w; $("e-st").value = L.st; $("e-so").value = L.so;
+    $("e-f").value = L.focus === "auto" ? Math.round(autoFocus() * 100) : L.focus;
+    render();
+  }
+  document.querySelectorAll("[data-look]").forEach((b) => b.onclick = () => { setPressed("[data-look]", b); applyLook(b.dataset.look); });
+  cv.addEventListener("pointerdown", (e) => { pick(e); cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", (e) => { if (mode === "par" && e.buttons) pick(e); });
+  ["e-f", "e-w", "e-st", "e-so", "e-gs"].forEach((id) => $(id).oninput = render);
+  $("e-gr").onchange = render;
+  $("e-sn").oninput = refine;
+  $("e-sd").onchange = render;
+  document.querySelectorAll("[data-mode]").forEach((b) => b.onclick = () => { mode = b.dataset.mode; setPressed("[data-mode]", b); setPressed("[data-look]", null); render(); });
+  document.querySelectorAll("[data-eres]").forEach((b) => b.onclick = () => { M = +b.dataset.eres; setPressed("[data-eres]", b); build(); });
+
+  return {
+    invalidate() { dirty = true; if (visible()) build(); },
+    show() { if (dirty) build(); },
+    toBlob() { return new Promise((res) => cv.toBlob(res, "image/png")); },
+    modeName() { return mode; },
+  };
+})();
+
+// ---------- curve panel: drawing and touch editing ----------
+const cc = $("curve"), PAD = 10;
+const drag = { idx: -1, out: false, lastTap: 0, lastIdx: -1 };
+let hist = { src: null, bins: null };
+
+function drawCurve() {
+  const r = cc.getBoundingClientRect(); if (!r.width) return; // tab hidden
+  const dpr = window.devicePixelRatio || 1, Wc = Math.round(r.width * dpr), Hc = Math.round(r.height * dpr);
+  if (cc.width !== Wc || cc.height !== Hc) { cc.width = Wc; cc.height = Hc; }
+  const g = cc.getContext("2d"), cs = getComputedStyle(document.documentElement), tok = (n) => cs.getPropertyValue(n).trim();
+  const pad = PAD * dpr, iw = Wc - 2 * pad, ih = Hc - 2 * pad, X = (x) => pad + x * iw, Y = (y) => pad + (1 - y) * ih;
+  g.fillStyle = tok("--bg"); g.fillRect(0, 0, Wc, Hc);
+  const D = state.depth;
+  if (D) {
+    if (hist.src !== D) {
+      const b = new Float32Array(64); for (let i = 0; i < D.data.length; i++) b[Math.min(63, (D.data[i] * 64) | 0)]++;
+      let mx = 0; for (const v of b) mx = Math.max(mx, v); for (let i = 0; i < 64; i++) b[i] = Math.sqrt(b[i] / (mx || 1));
+      hist = { src: D, bins: b };
+    }
+    g.fillStyle = tok("--line");
+    for (let i = 0; i < 64; i++) { const h = hist.bins[i] * ih * 0.9; g.fillRect(X(i / 64), pad + ih - h, iw / 64 + 0.5, h); }
+  }
+  g.strokeStyle = tok("--line"); g.lineWidth = dpr; g.beginPath();
+  for (let k = 1; k < 4; k++) { g.moveTo(X(k / 4), pad); g.lineTo(X(k / 4), pad + ih); g.moveTo(pad, Y(k / 4)); g.lineTo(pad + iw, Y(k / 4)); }
+  g.stroke(); g.strokeRect(pad, pad, iw, ih);
+  g.setLineDash([4 * dpr, 4 * dpr]); g.strokeStyle = tok("--muted"); g.beginPath(); g.moveTo(X(0), Y(0)); g.lineTo(X(1), Y(1)); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = tok("--accent"); g.lineWidth = 2.5 * dpr; g.lineJoin = "round"; g.beginPath();
+  for (let k = 0; k <= 200; k++) { const x = k / 200, y = curve.lut[Math.round(x * 1023)]; if (k) g.lineTo(X(x), Y(y)); else g.moveTo(X(x), Y(y)); }
+  g.stroke();
+  curve.pts.forEach((p, i) => {
+    const removing = i === drag.idx && drag.out;
+    g.beginPath(); g.arc(X(p[0]), Y(p[1]), (i === drag.idx ? 8 : 6) * dpr, 0, Math.PI * 2);
+    g.fillStyle = removing ? tok("--danger") : tok("--surface"); g.fill();
+    g.lineWidth = 2 * dpr; g.strokeStyle = removing ? tok("--danger") : tok("--accent"); g.stroke();
+  });
+  g.fillStyle = tok("--muted"); g.font = `${10 * dpr}px ${tok("--font-mono") || "monospace"}`; g.textBaseline = "top";
+  g.textAlign = "left"; g.fillText("OUT", pad + 5 * dpr, pad + 4 * dpr);
+  g.textBaseline = "bottom"; g.textAlign = "right"; g.fillText("IN: FAR → NEAR", pad + iw - 5 * dpr, pad + ih - 4 * dpr);
+}
+
+function curveReadout() {
+  const p = drag.idx >= 0 ? curve.pts[drag.idx] : null;
+  $("curve-read").textContent = p
+    ? (drag.out ? "Release to remove point" : `in ${p[0].toFixed(2)} → out ${p[1].toFixed(2)}`)
+    : (isLinear() ? "Linear" : `${curve.pts.length} points`);
+}
+
+let previewQueued = false;
+function curveChanged(commit) {
+  buildCurveLut(); curveReadout(); drawCurve();
+  if (!previewQueued) { previewQueued = true; requestAnimationFrame(() => { previewQueued = false; previewDepth(); }); }
+  if (commit) { renderDepth(); depthChanged(); }
+}
+
+function toCurve(e) {
+  const r = cc.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  return { x: (px - PAD) / (r.width - 2 * PAD), y: 1 - (py - PAD) / (r.height - 2 * PAD), px, py, r };
+}
+function nearestPoint(c) {
+  let best = -1, bd = 26;
+  curve.pts.forEach((p, i) => { const d = Math.hypot((p[0] - c.x) * (c.r.width - 2 * PAD), (p[1] - c.y) * (c.r.height - 2 * PAD)); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+cc.addEventListener("pointerdown", (e) => {
+  const c = toCurve(e), now = performance.now(), last = curve.pts.length - 1;
+  let i = nearestPoint(c);
+  if (i > 0 && i < last && i === drag.lastIdx && now - drag.lastTap < 350) { // double-tap removes
+    curve.pts.splice(i, 1); drag.lastTap = 0; drag.lastIdx = -1; curveChanged(true); return;
+  }
+  if (i < 0) { // tap on empty space adds a point there
+    const x = Math.min(0.98, Math.max(0.02, c.x));
+    if (curve.pts.some((p) => Math.abs(p[0] - x) < 0.025)) return;
+    const pt = [x, Math.min(1, Math.max(0, c.y))];
+    curve.pts.push(pt); curve.pts.sort((a, b) => a[0] - b[0]); i = curve.pts.indexOf(pt);
+  }
+  drag.idx = i; drag.out = false; drag.lastTap = now; drag.lastIdx = i;
+  cc.setPointerCapture(e.pointerId);
+  curveChanged(false);
+});
+cc.addEventListener("pointermove", (e) => {
+  if (drag.idx < 0) return;
+  const c = toCurve(e), p = curve.pts, i = drag.idx, last = p.length - 1;
+  drag.out = i > 0 && i < last && (c.px < -30 || c.py < -30 || c.px > c.r.width + 30 || c.py > c.r.height + 30);
+  const x = i === 0 ? 0 : i === last ? 1 : Math.min(p[i + 1][0] - 0.02, Math.max(p[i - 1][0] + 0.02, c.x));
+  p[i] = [x, Math.min(1, Math.max(0, c.y))];
+  curveChanged(false);
+});
+function endCurveDrag() {
+  if (drag.idx < 0) return;
+  if (drag.out) { curve.pts.splice(drag.idx, 1); drag.lastIdx = -1; }
+  drag.idx = -1; drag.out = false;
+  curveChanged(true);
+}
+cc.addEventListener("pointerup", endCurveDrag);
+cc.addEventListener("pointercancel", endCurveDrag);
+
+const CURVES = {
+  reset: () => [[0, 0], [1, 1]],
+  contrast: () => [[0, 0], [0.25, 0.14], [0.75, 0.86], [1, 1]],
+  near: () => [[0, 0], [0.55, 0.22], [1, 1]],
+  far: () => [[0, 0], [0.35, 0.02], [1, 1]],
+  invert: () => curve.pts.map(([x, y]) => [x, 1 - y]),
+};
+document.querySelectorAll("[data-curve]").forEach((b) => b.onclick = () => { curve.pts = CURVES[b.dataset.curve](); curveChanged(true); });
+window.addEventListener("resize", drawCurve);
+try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawCurve); } catch {}
+
+// ---------- 3D view: the photo as a surface shaped by the (curved) depth map ----------
+const viewer3d = (() => {
+  const cv = $("gl"), box = $("stage3d");
+  let gl = null, prog = null, posBuf = null, uvBuf = null, idxBuf = null, tex = null, count = 0;
+  let dirty = true, aspect = 1, sx = 1, sy = 1, nx = 0, ny = 0, dv = null, pos = null, pivot = 0.5;
+  let yaw = 0, pitch = 0, baseYaw = 0, basePitch = 0, dragging = null, raf = 0, failed = false;
+  const visible = () => !$("view-3d").hidden;
+  const amt = () => $("d3-amt").value / 100, zoom = () => $("d3-zoom").value / 100;
+
+  const VS = "attribute vec3 p;attribute vec2 uv;uniform mat4 m;varying vec2 v;void main(){v=uv;gl_Position=m*vec4(p,1.0);}";
+  const FS = "precision mediump float;varying vec2 v;uniform sampler2D t;void main(){gl_FragColor=texture2D(t,v);}";
+  function init() {
+    if (gl) return true;
+    if (failed) return false;
+    gl = cv.getContext("webgl", { preserveDrawingBuffer: true, antialias: true }) || cv.getContext("experimental-webgl", { preserveDrawingBuffer: true });
+    if (!gl) { failed = true; $("d3-hint").textContent = "3D needs WebGL, which this browser has turned off."; return false; }
+    const sh = (type, srcText) => { const s = gl.createShader(type); gl.shaderSource(s, srcText); gl.compileShader(s); return s; };
+    prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
+    posBuf = gl.createBuffer(); uvBuf = gl.createBuffer(); idxBuf = gl.createBuffer(); tex = gl.createTexture();
+    gl.enable(gl.DEPTH_TEST);
+    return true;
+  }
+  cv.addEventListener("webglcontextlost", (e) => { e.preventDefault(); gl = null; dirty = true; });
+  cv.addEventListener("webglcontextrestored", () => { if (visible()) { build(); kick(); } });
+
+  function sampleDepth(C, u, v) {
+    const fx = Math.min(C.w - 1, Math.max(0, u * (C.w - 1))), fy = Math.min(C.h - 1, Math.max(0, v * (C.h - 1)));
+    const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(x0 + 1, C.w - 1), y1 = Math.min(y0 + 1, C.h - 1), tx = fx - x0, ty = fy - y0, d = C.data;
+    return (d[y0 * C.w + x0] * (1 - tx) + d[y0 * C.w + x1] * tx) * (1 - ty) + (d[y1 * C.w + x0] * (1 - tx) + d[y1 * C.w + x1] * tx) * ty;
+  }
+
+  function build() {
+    const C = curvedDepth();
+    if (!state.photo || !C || !init()) return;
+    aspect = state.photo.width / state.photo.height;
+    sx = aspect >= 1 ? 1 : aspect; sy = aspect >= 1 ? 1 / aspect : 1;
+    box.style.aspectRatio = `${state.photo.width} / ${state.photo.height}`;
+    box.style.width = `min(100%, calc(68vh * ${aspect.toFixed(4)}))`;
+    // Grid: 200 cells on the long side (≤ 40k vertices, fits 16-bit indices).
+    nx = aspect >= 1 ? 200 : Math.max(8, Math.round(200 * aspect)); ny = aspect >= 1 ? Math.max(8, Math.round(200 / aspect)) : 200;
+    const nv = (nx + 1) * (ny + 1), uv = new Float32Array(nv * 2); dv = new Float32Array(nv); pos = new Float32Array(nv * 3);
+    const centre = [];
+    for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+      const k = j * (nx + 1) + i, u = i / nx, v = j / ny;
+      uv[k * 2] = u; uv[k * 2 + 1] = v; dv[k] = sampleDepth(C, u, v);
+      if (u > 0.3 && u < 0.7 && v > 0.3 && v < 0.7) centre.push(dv[k]);
+    }
+    centre.sort((a, b) => a - b); pivot = centre[Math.floor(centre.length / 2)] ?? 0.5;
+    const idx = new Uint16Array(nx * ny * 6); let n = 0;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, d = c + 1;
+      idx[n++] = a; idx[n++] = c; idx[n++] = b; idx[n++] = b; idx[n++] = c; idx[n++] = d;
+    }
+    count = n;
+    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf); gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    updatePositions(true);
+    // Photo texture, capped to what the GPU allows.
+    const maxT = Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE)), k = Math.min(1, maxT / Math.max(state.photo.width, state.photo.height));
+    const tc = new OffscreenCanvas(Math.round(state.photo.width * k), Math.round(state.photo.height * k)), tg = tc.getContext("2d");
+    tg.imageSmoothingQuality = "high"; tg.drawImage(state.photo, 0, 0, tc.width, tc.height);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tg.getImageData(0, 0, tc.width, tc.height));
+    dirty = false;
+  }
+  function updatePositions(fresh) {
+    if (!gl || !dv) return;
+    const relief = amt() * 0.55;
+    for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+      const k = j * (nx + 1) + i;
+      pos[k * 3] = (i / nx - 0.5) * sx; pos[k * 3 + 1] = (0.5 - j / ny) * sy; pos[k * 3 + 2] = (dv[k] - pivot) * relief;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    if (fresh) gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW); else gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos);
+  }
+
+  // Column-major 4x4 helpers.
+  const mul = (a, b) => { const o = new Float32Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; };
+  const persp = (fov, asp, n, f) => { const t = 1 / Math.tan(fov / 2); return new Float32Array([t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, 2 * f * n / (n - f), 0]); };
+  const trans = (x, y, z) => new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]);
+  const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a); return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]); };
+  const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]); };
+
+  function bg() {
+    const s = getComputedStyle(document.documentElement).getPropertyValue("--stage").trim(), m = s.match(/^#([0-9a-f]{6})$/i);
+    if (!m) return [0.08, 0.09, 0.1];
+    const n = parseInt(m[1], 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
+  }
+
+  function draw(t) {
+    if (!gl || dirty) return;
+    const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.min(2048, Math.round(r.width * dpr))), h = Math.max(1, Math.min(2048, Math.round(r.height * dpr)));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    gl.viewport(0, 0, w, h);
+    const [br, bgc, bb] = bg(); gl.clearColor(br, bgc, bb, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const wob = $("d3-wobble").checked && !dragging ? 1 : 0, s = t / 1000;
+    const ty = baseYaw + wob * 0.16 * Math.sin(s * 0.9), tp = basePitch + wob * 0.08 * Math.sin(s * 1.3 + 0.7);
+    yaw += (ty - yaw) * 0.18; pitch += (tp - pitch) * 0.18;
+    const fov = 0.6, dist = (sy / 2) / Math.tan(fov / 2) * (1.12 - zoom() * 0.45);
+    const m = mul(persp(fov, w / h, 0.05, 20), mul(trans(0, 0, -dist), mul(rotX(pitch), rotY(yaw))));
+    gl.useProgram(prog);
+    const pl = gl.getAttribLocation(prog, "p"), ul = gl.getAttribLocation(prog, "uv");
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(pl); gl.vertexAttribPointer(pl, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, uvBuf); gl.enableVertexAttribArray(ul); gl.vertexAttribPointer(ul, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+    gl.uniformMatrix4fv(gl.getUniformLocation(prog, "m"), false, m);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(gl.getUniformLocation(prog, "t"), 0);
+    gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_SHORT, 0);
+    return Math.abs(ty - yaw) + Math.abs(tp - pitch) > 0.0005 || wob;
+  }
+  function loop(t) {
+    raf = 0;
+    if (!visible()) return;
+    if (draw(t) || dragging) raf = requestAnimationFrame(loop);
+  }
+  function kick() { if (!raf && visible()) raf = requestAnimationFrame(loop); }
+
+  cv.addEventListener("pointerdown", (e) => { dragging = { x: e.clientX, y: e.clientY, yaw: baseYaw, pitch: basePitch }; cv.setPointerCapture(e.pointerId); kick(); });
+  cv.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const r = cv.getBoundingClientRect();
+    // Limits keep the view where a single photo still looks solid; past this, edges smear.
+    baseYaw = Math.max(-0.45, Math.min(0.45, dragging.yaw + (e.clientX - dragging.x) / r.width * 1.2));
+    basePitch = Math.max(-0.32, Math.min(0.32, dragging.pitch + (e.clientY - dragging.y) / r.height * 0.9));
+    kick();
+  });
+  const endDrag = () => { dragging = null; kick(); };
+  cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+  $("d3-amt").oninput = () => { $("d3-amt").nextElementSibling.textContent = $("d3-amt").value; updatePositions(false); kick(); };
+  $("d3-zoom").oninput = () => { $("d3-zoom").nextElementSibling.textContent = $("d3-zoom").value; kick(); };
+  $("d3-wobble").onchange = kick;
+  $("d3-reset").onclick = () => { baseYaw = basePitch = 0; $("d3-amt").value = 45; $("d3-zoom").value = 20; $("d3-amt").oninput(); $("d3-zoom").oninput(); };
+  window.addEventListener("resize", kick);
+  $("d3-amt").nextElementSibling.textContent = $("d3-amt").value; $("d3-zoom").nextElementSibling.textContent = $("d3-zoom").value;
+
+  return {
+    invalidate() { dirty = true; if (visible()) { build(); kick(); } },
+    show() { if (dirty) build(); kick(); },
+    toBlob() { return new Promise((res) => { draw(performance.now()); cv.toBlob(res, "image/png"); }); },
+  };
+})();
+
+function depthChanged() { editor.invalidate(); viewer3d.invalidate(); }
+
+const TABS = ["depth", "edit", "3d"];
+function showTab(which) {
+  for (const t of TABS) { $(`tab-${t}`).setAttribute("aria-selected", String(t === which)); $(`view-${t}`).hidden = t !== which; }
+  if (which === "edit") editor.show(); else if (which === "3d") viewer3d.show(); else drawCurve();
+}
+for (const t of TABS) $(`tab-${t}`).onclick = () => showTab(t);
+
+// ---------- UI wiring ----------
+function setPressed(sel, el) { document.querySelectorAll(sel).forEach((b) => b.setAttribute("aria-pressed", String(b === el))); }
+
+// The model's size is kept under its own small key so this check never loads 234 MB.
+async function refreshLarge() {
+  const size = state.largeFallback ? sizeOf(state.largeFallback) : (await cacheGet("large-model-size")) || 0;
+  const have = size > 0;
+  $("large-state").textContent = have ? `Saved on this device (${(size / 1e6).toFixed(0)} MB). Ready to use.` : "Not on this device yet.";
+  $("large-state").classList.toggle("muted", !have);
+  $("large-steps").hidden = have;
+  $("large-forget").hidden = !have;
+}
+
+function chooseModel(which) {
+  state.model = which;
+  setPressed(".seg button", $(which === "small" ? "m-small" : "m-large"));
+  $("large-panel").hidden = which !== "large";
+  if (which === "large") refreshLarge();
+  // free the other model's memory on phones
+  for (const k of Object.keys(state.sessions)) if (k !== which) { try { state.sessions[k].release(); } catch {} delete state.sessions[k]; }
+  if (state.file && !state.busy) run();
+}
+$("m-small").onclick = () => chooseModel("small");
+$("m-large").onclick = () => chooseModel("large");
+
+$("large-file").onchange = async (e) => {
+  const picked = e.target.files && e.target.files[0];
+  if (!picked) return;
+  if (picked.size < 50e6) { e.target.value = ""; say("That file is too small to be the Large model. Pick model_q4f16.onnx.", true); return; }
+  say("Reading Large model…"); progress(null);
+  let f;
+  try { f = await picked.arrayBuffer(); }
+  catch (err) { console.error(err); say(unreadable(err) ? "This device didn't hand over the model file. Pick it again from the Files app." : "Couldn't read the model file. Try picking it again.", true); return; }
+  finally { e.target.value = ""; }
+  say("Saving Large model on this device…");
+  state.largeFallback = null;
+  const ok = (await cachePut("large-model", f)) && (await cachePut("large-model-size", f.byteLength));
+  if (!ok) { await cacheDel("large-model"); await cacheDel("large-model-size"); state.largeFallback = f; say("This browser wouldn't keep the file (private mode or storage full). It'll work for this visit only.", true); }
+  else say("Large model saved. Pick a photo, or it runs on your current one.");
+  delete state.sessions.large;
+  await refreshLarge();
+  if (state.file) run();
+};
+$("large-forget").onclick = async () => { state.largeFallback = null; await cacheDel("large-model"); await cacheDel("large-model-size"); try { state.sessions.large && state.sessions.large.release(); } catch {} delete state.sessions.large; refreshLarge(); say("Large model removed from this device."); };
+
+// iPadOS/iOS Safari hands the page a temporary file that can vanish within seconds,
+// so copy the bytes into memory immediately, before anything else is awaited.
+async function keepFile(f) {
+  const buf = await f.arrayBuffer();
+  return new File([buf], f.name || "photo.jpg", { type: f.type || "image/jpeg" });
+}
+function unreadable(e) { return e && (e.name === "NotFoundError" || e.name === "NotReadableError" || /can ?not be found|could not be read/i.test(String(e.message))); }
+
+$("photo").onchange = async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try { state.file = await keepFile(f); }
+  catch (err) { console.error(err); say(unreadable(err) ? "This device didn't hand over that photo. Pick it again, or save it to Files first and pick it from there." : "Couldn't open that photo. Try another one.", true); return; }
+  finally { e.target.value = ""; }
+  run();
+};
+
+document.querySelectorAll("[data-cmap]").forEach((b) => b.onclick = () => { state.cmap = b.dataset.cmap; setPressed("[data-cmap]", b); legend(); renderDepth(); });
+document.querySelectorAll("[data-res]").forEach((b) => b.onclick = () => { state.res = +b.dataset.res; setPressed("[data-res]", b); if (state.file) run(); });
+
+$("split").oninput = (e) => $("stage").style.setProperty("--split", `${e.target.value}%`);
+
+// Saving: through the viewer's save prompt when available.
+(async () => {
+  let downloads = null;
+  downloads = {
+    async save({ filename, data }) {
+      const file = new File([data], filename, { type: data.type || "image/png" });
+      if (matchMedia("(pointer: coarse)").matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return; }
+        catch (e) { if (e && e.name === "AbortError") throw { code: "declined" }; }
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(file); a.download = filename;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    },
+  };
+  const base = () => (state.isExample ? "example" : (state.file && state.file.name || "photo").replace(/\.[^.]+$/, ""));
+  // Without a save prompt, show the edit as an image the viewer can press and hold.
+  let outURL = null;
+  async function showEditImage() {
+    const blob = await editor.toBlob(); if (!blob) return;
+    if (outURL) URL.revokeObjectURL(outURL);
+    outURL = URL.createObjectURL(blob);
+    $("e-out").src = outURL; $("e-out").hidden = false;
+    $("e-save-note").textContent = "Press and hold the image below to save it.";
+  }
+  async function save(blob, name, noteEl, fallback) {
+    if (!downloads) return fallback();
+    try { await downloads.save({ filename: name, data: blob }); noteEl("Saved."); }
+    catch (e) { if (e && e.code === "declined") return; if (e && e.code === "rate_limited") noteEl("A save prompt is already open."); else { downloads = null; fallback(); } }
+  }
+  if (!downloads) $("save").hidden = true;
+  $("save").onclick = () => state.depthBlob && save(state.depthBlob, `${base()}_depth.png`, (t) => say(t), () => { $("save").hidden = true; say("Saving isn't available here. Press and hold the image instead.", true); });
+  let snapURL = null;
+  async function showSnapImage(blob) {
+    if (snapURL) URL.revokeObjectURL(snapURL);
+    snapURL = URL.createObjectURL(blob);
+    $("d3-out").src = snapURL; $("d3-out").hidden = false;
+    $("d3-note").textContent = "Press and hold the image below to save it.";
+  }
+  $("d3-save").onclick = async () => {
+    const blob = await viewer3d.toBlob(); if (!blob) return;
+    save(blob, `${base()}_3d.png`, (t) => { $("d3-note").textContent = t; }, () => showSnapImage(blob));
+  };
+  $("e-save").onclick = async () => {
+    const blob = await editor.toBlob(); if (!blob) return;
+    save(blob, `${base()}_${editor.modeName()}.png`, (t) => { $("e-save-note").textContent = t; }, showEditImage);
+  };
+})();
+
+legend();
+drawExample();
+drawCurve();
+try { document.fonts.ready.then(drawCurve); } catch {}
+
+// ---------- offline ----------
+async function offlineStatus() {
+  const el = $("offline-state"), btn = $("offline-get");
+  if (!("serviceWorker" in navigator) || !self.caches) { el.textContent = "Offline: not supported in this browser"; return; }
+  let have = false;
+  try { const c = await caches.open(ASSET_CACHE); have = (await Promise.all(Object.values(FILES).map((s) => c.match(s.url)))).every(Boolean); } catch {}
+  el.textContent = have ? "Offline: ready" : "Offline: model not saved yet";
+  btn.hidden = have;
+}
+$("offline-get").onclick = async () => {
+  if (state.busy) return;
+  state.busy = true; $("offline-get").disabled = true;
+  try {
+    try { await navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+    await navigator.serviceWorker.ready;
+    await fetchFile(FILES.wasm, "engine", false);
+    await fetchFile(FILES.small, "Small model", false);
+    say("Saved. Pocket Depth now works without a connection.");
+  } catch (e) { console.error(e); say(e && e.message ? e.message : "Couldn't save for offline use.", true); }
+  finally { progress(null); state.busy = false; $("offline-get").disabled = false; offlineStatus(); }
+};
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch((e) => console.warn("service worker failed", e));
+  navigator.serviceWorker.ready.then(offlineStatus);
+}
+offlineStatus();
+</script>
+
+</body></html>
