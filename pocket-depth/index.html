@@ -162,6 +162,7 @@ footer { color: var(--muted); font-size: 0.8rem; display: flex; flex-direction: 
       <input class="file-input" type="file" id="large-file" accept=".onnx,application/octet-stream">
       <button class="btn small" type="button" id="large-forget" hidden>Remove from device</button>
     </div>
+    <p class="muted" id="large-warn" style="font-size:0.82rem" hidden>Large crashed on this device before. It probably needs more memory than this device gives a web page; Small at 770 px is the closest it can do.</p>
     <p class="muted" style="font-size:0.82rem">Large needs WebGPU (recent Safari or Chrome) and around 1.5 GB of free memory. If the page reloads mid-run, your phone ran out of memory; use Small.</p>
   </div>
 
@@ -206,6 +207,7 @@ footer { color: var(--muted); font-size: 0.8rem; display: flex; flex-direction: 
       </div>
     </div>
   </div>
+  <p class="hint" id="detail-note" hidden></p>
 
   <div class="legend">
     <div class="bar" id="legend-bar"></div>
@@ -416,8 +418,24 @@ async function ensureRuntime() {
   state.wasmReady = true;
 }
 
-async function getSession(which) {
-  if (state.sessions[which]) return state.sessions[which];
+// Phones run out of GPU memory well before CPU memory: Small at 770 px uses about 25 MB more
+// than 518 px on the CPU, but far more on WebGPU. So iPhones run high detail on the CPU, and any
+// setting that crashed or failed on the GPU here is remembered and runs on the CPU from then on.
+const IS_PHONE = /iPhone|iPod/.test(navigator.userAgent) || (/Android/.test(navigator.userAgent) && /Mobile/.test(navigator.userAgent));
+const combo = (model = state.model, res = state.res) => `${model}:${res}`;
+function store(key, val) { try { if (val == null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+function load(key, def) { try { const v = localStorage.getItem(key); return v == null ? def : JSON.parse(v); } catch { return def; } }
+const gpuTrouble = new Set(load("pd-gpu-trouble", []));
+function markGpuTrouble(c) { gpuTrouble.add(c); store("pd-gpu-trouble", [...gpuTrouble]); }
+function useCPU(model, res) { return model === "small" && (gpuTrouble.has(combo(model, res)) || (IS_PHONE && res > 518)); }
+function releaseSessions(keep) {
+  for (const k of Object.keys(state.sessions)) if (k !== keep) { try { state.sessions[k].release(); } catch {} delete state.sessions[k]; }
+}
+
+async function getSession(which, cpuOnly = false) {
+  const key = `${which}:${cpuOnly ? "cpu" : "auto"}`;
+  releaseSessions(key); // one model in memory at a time
+  if (state.sessions[key]) { state.backend = state.sessions[key].backendName; return state.sessions[key]; }
   await ensureRuntime();
   let bytes;
   if (which === "small") {
@@ -428,7 +446,7 @@ async function getSession(which) {
     if (!bytes) { await cacheDel("large-model-size"); refreshLarge(); throw new Error("Choose the Large model file (see the steps above). If you already did, this device dropped it; choose it again."); }
   }
   say(`Starting ${which === "small" ? "Small" : "Large"} model…`); progress(null);
-  const gpu = await hasWebGPU();
+  const gpu = !cpuOnly && await hasWebGPU();
   let session = null, backend = null, firstErr = null;
   if (gpu) {
     try { session = await ort.InferenceSession.create(bytes, { executionProviders: ["webgpu"], graphOptimizationLevel: "all" }); backend = "WebGPU"; }
@@ -439,9 +457,9 @@ async function getSession(which) {
     session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
     backend = "CPU (slower)";
   }
-  state.backend = backend;
+  state.backend = backend; session.backendName = backend;
   $("backend").textContent = `Engine: ONNX Runtime Web 1.22 · ${backend} · ${which === "small" ? "Small fp32" : "Large q4f16"}`;
-  state.sessions[which] = session;
+  state.sessions[key] = session;
   return session;
 }
 
@@ -627,7 +645,8 @@ async function run() {
   state.again = false;
   state.busy = true; $("pick").setAttribute("aria-disabled", "true"); $("save").disabled = true;
   try {
-    const session = await getSession(state.model);
+    const cpuOnly = useCPU(state.model, state.res);
+    const session = await getSession(state.model, cpuOnly);
     say("Reading photo…"); progress(null);
     const bitmap = await createImageBitmap(state.file, { imageOrientation: "from-image" });
     const k = Math.min(1, MAX_OUT / Math.max(bitmap.width, bitmap.height));
@@ -636,7 +655,9 @@ async function run() {
     photoURL = URL.createObjectURL(state.file);
     say(`Estimating depth with ${state.model === "small" ? "Small" : "Large"} on ${state.backend}…`);
     const t0 = performance.now();
+    store("pd-inflight", { c: combo(), gpu: state.backend === "WebGPU" });
     const D = await predict(session, bitmap);
+    store("pd-inflight", null);
     if (state.photo && state.photo !== bitmap && state.photo.close) state.photo.close();
     state.photo = bitmap; state.isExample = false;
     state.depth = { ...D, outW, outH };
@@ -650,14 +671,20 @@ async function run() {
     $("save").disabled = false;
   } catch (e) {
     console.error(e);
-    if (unreadable(e) && !state.retried) {
+    const inflight = load("pd-inflight", null);
+    store("pd-inflight", null);
+    if (inflight && inflight.gpu && state.model === "small" && !unreadable(e)) {
+      // The GPU gave up on this size; the CPU has plenty of room for it.
+      markGpuTrouble(inflight.c); state.again = true;
+      say("The GPU ran out of room, so trying again on the CPU (slower)…");
+    } else if (unreadable(e) && !state.retried) {
       // Safari lost something we cached. Clear the cache and run once more from fresh downloads.
       state.retried = true; state.again = true;
       await dropCachedAssets();
       say("Refreshing the saved model and trying again…");
     } else {
       state.retried = false;
-      say(unreadable(e) ? "This device keeps losing the saved files. Close other tabs, then reload the page and try again." : (e && e.message ? e.message : "Something went wrong. Try again, or switch to Small."), true);
+      say(unreadable(e) ? "This device keeps losing the saved files. Close other tabs, then reload the page and try again." : state.model === "large" ? "Large ran out of memory on this device. Use Small; it handles 770 px on the CPU." : (e && e.message ? e.message : "Something went wrong. Try again, or switch to Small."), true);
     }
   } finally {
     progress(null); state.busy = false; $("pick").removeAttribute("aria-disabled"); offlineStatus();
@@ -1128,7 +1155,8 @@ function chooseModel(which) {
   $("large-panel").hidden = which !== "large";
   if (which === "large") refreshLarge();
   // free the other model's memory on phones
-  for (const k of Object.keys(state.sessions)) if (k !== which) { try { state.sessions[k].release(); } catch {} delete state.sessions[k]; }
+  releaseSessions(null);
+  detailNote();
   if (state.file && !state.busy) run();
 }
 $("m-small").onclick = () => chooseModel("small");
@@ -1172,7 +1200,7 @@ $("photo").onchange = async (e) => {
 };
 
 document.querySelectorAll("[data-cmap]").forEach((b) => b.onclick = () => { state.cmap = b.dataset.cmap; setPressed("[data-cmap]", b); legend(); renderDepth(); });
-document.querySelectorAll("[data-res]").forEach((b) => b.onclick = () => { state.res = +b.dataset.res; setPressed("[data-res]", b); if (state.file) run(); });
+document.querySelectorAll("[data-res]").forEach((b) => b.onclick = () => { state.res = +b.dataset.res; setPressed("[data-res]", b); detailNote(); if (state.file) run(); });
 
 $("split").oninput = (e) => $("stage").style.setProperty("--split", `${e.target.value}%`);
 
@@ -1230,6 +1258,28 @@ legend();
 drawExample();
 drawCurve();
 try { document.fonts.ready.then(drawCurve); } catch {}
+
+// ---------- memory notes ----------
+function detailNote() {
+  const el = $("detail-note");
+  el.hidden = !useCPU(state.model, state.res);
+  el.textContent = `${state.res} px runs on the CPU on this device so it doesn't run out of memory. It's slower but gives the same result.`;
+  $("large-warn").hidden = !load("pd-large-crashed", false);
+}
+(() => {
+  const crashed = load("pd-inflight", null);
+  store("pd-inflight", null);
+  if (!crashed) return;
+  const [model, res] = crashed.c.split(":");
+  if (model === "large") store("pd-large-crashed", true);
+  else if (crashed.gpu) markGpuTrouble(crashed.c);
+  say(model === "large"
+    ? "Pocket Depth restarted because Large needed more memory than this device allows. Use Small instead."
+    : crashed.gpu
+      ? `Pocket Depth restarted because the GPU ran out of memory at ${res} px. From now on ${res} px runs on the CPU here. Pick the photo again.`
+      : `Pocket Depth restarted because this device ran out of memory at ${res} px. Try a lower detail.`, true);
+})();
+detailNote();
 
 // ---------- offline ----------
 async function offlineStatus() {
