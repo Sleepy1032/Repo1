@@ -309,6 +309,7 @@ footer { color: var(--muted); font-size: 0.8rem; display: flex; flex-direction: 
     <div class="row" id="offline-row">
       <span id="offline-state" class="mono">Offline: checking…</span>
       <button class="btn small" type="button" id="offline-get" hidden>Save for offline use (121 MB)</button>
+      <button class="btn small" type="button" id="offline-del" hidden>Delete saved model</button>
     </div>
     <span id="backend" class="mono">Engine: not loaded</span>
     <span>Relative depth: brighter is closer. Models by Depth Anything V2 (Apache‑2.0 Small, CC‑BY‑NC‑4.0 Large), ONNX builds by onnx-community.</span>
@@ -1238,7 +1239,17 @@ async function offlineStatus() {
   try { const c = await caches.open(ASSET_CACHE); have = (await Promise.all(Object.values(FILES).map((s) => c.match(s.url)))).every(Boolean); } catch {}
   el.textContent = have ? "Offline: ready" : "Offline: model not saved yet";
   btn.hidden = have;
+  $("offline-del").hidden = !have;
 }
+$("offline-del").onclick = async () => {
+  if (state.busy) return;
+  if (!confirm("Delete the saved Small model and engine (121 MB) from this device? You'll need a connection to use Pocket Depth again.")) return;
+  await dropCachedAssets();
+  for (const k of Object.keys(state.sessions)) { try { state.sessions[k].release(); } catch {} delete state.sessions[k]; }
+  state.wasmReady = false;
+  say("Deleted the saved model. It downloads again the next time you make a depth map.");
+  offlineStatus();
+};
 $("offline-get").onclick = async () => {
   if (state.busy) return;
   state.busy = true; $("offline-get").disabled = true;

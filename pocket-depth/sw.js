@@ -1,7 +1,7 @@
 // Pocket Depth service worker: keeps the page, the ONNX runtime and the Small model
 // on the device so the app opens and runs with no connection.
 
-const SHELL = "pd-shell-v1";   // bump to ship a new page
+const SHELL = "pd-shell-v2";   // bump to ship a new page
 const ASSETS = "pd-assets-v1"; // big files that never change; kept across page updates
 const FONTS = "pd-fonts-v1";
 
