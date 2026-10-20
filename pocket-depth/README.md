@@ -30,8 +30,12 @@ Opening `index.html` as a file won't work.
   online, then on a phone choose Share → Add to Home Screen. (Pages needs a
   public repo, or a paid plan for a private one.)
 - **Any static host** (Netlify, Cloudflare Pages and so on): upload this folder.
-- **On a computer**: run `python3 -m http.server` in this folder and open
-  `http://localhost:8000/`.
+- **On a computer**: copy this whole folder anywhere (the desktop is fine) and
+  double-click **Start Pocket Depth (Windows).bat**. On a Mac, use
+  **Start Pocket Depth (Mac).command** instead. A small window opens and the app
+  opens in your browser at `http://localhost:8642/`. Keep the window open while
+  you use the app, and close it when you're done. Nothing needs installing, and
+  no connection is needed.
 
 To ship a new version of the page, bump `SHELL` in `sw.js`. The model cache
 (`ASSETS`) is kept, so nobody has to download it again.
