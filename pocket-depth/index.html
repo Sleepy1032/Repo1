@@ -304,6 +304,13 @@ footer { color: var(--muted); font-size: 0.8rem; display: flex; flex-direction: 
       <button class="btn primary" type="button" id="d3-save">Save snapshot</button>
       <span class="muted" id="d3-note" style="font-size:0.85rem"></span>
     </div>
+    <div class="row">
+      <span class="label">3D model</span>
+      <button class="btn small" type="button" id="d3-glb">GLB · PC, Blender</button>
+      <button class="btn small" type="button" id="d3-usdz">USDZ · iPhone, iPad, AR</button>
+      <span class="muted" id="d3-model-note" style="font-size:0.85rem"></span>
+    </div>
+    <p class="hint">The model uses the current Depth slider and depth curve. It's the photo as a relief, so the back is open.</p>
     <img id="d3-out" alt="3D snapshot to save" hidden style="border-radius: var(--r)">
   </section>
 
@@ -1120,7 +1127,192 @@ const viewer3d = (() => {
   window.addEventListener("resize", kick);
   $("d3-amt").nextElementSibling.textContent = $("d3-amt").value; $("d3-zoom").nextElementSibling.textContent = $("d3-zoom").value;
 
+  // ---------- export: the same relief as a GLB or USDZ file ----------
+  // Same shape as the view, on a finer grid. 1 unit = 1 metre; the photo is 1 m on its long
+  // side and stands on the ground (y = 0), facing +z, which is how AR viewers place it.
+  function exportMesh(cells) {
+    const C = curvedDepth();
+    if (!state.photo || !C) return null;
+    const a = state.photo.width / state.photo.height, w = a >= 1 ? 1 : a, h = a >= 1 ? 1 / a : 1;
+    const mx = a >= 1 ? cells : Math.max(8, Math.round(cells * a)), my = a >= 1 ? Math.max(8, Math.round(cells / a)) : cells;
+    const nv = (mx + 1) * (my + 1), P = new Float32Array(nv * 3), UV = new Float32Array(nv * 2), D = new Float32Array(nv);
+    const centre = [];
+    for (let j = 0; j <= my; j++) for (let i = 0; i <= mx; i++) {
+      const k = j * (mx + 1) + i, u = i / mx, v = j / my;
+      D[k] = sampleDepth(C, u, v); UV[k * 2] = u; UV[k * 2 + 1] = v;
+      if (u > 0.3 && u < 0.7 && v > 0.3 && v < 0.7) centre.push(D[k]);
+    }
+    centre.sort((p, q) => p - q);
+    const piv = centre[Math.floor(centre.length / 2)] ?? 0.5, relief = amt() * 0.55;
+    let zmin = Infinity;
+    for (let k = 0; k < nv; k++) zmin = Math.min(zmin, (D[k] - piv) * relief);
+    for (let j = 0; j <= my; j++) for (let i = 0; i <= mx; i++) {
+      const k = j * (mx + 1) + i;
+      P[k * 3] = (i / mx - 0.5) * w; P[k * 3 + 1] = (1 - j / my) * h; P[k * 3 + 2] = (D[k] - piv) * relief - zmin;
+    }
+    const I = new Uint32Array(mx * my * 6); let n = 0;
+    for (let j = 0; j < my; j++) for (let i = 0; i < mx; i++) {
+      const p = j * (mx + 1) + i, q = p + 1, r = p + mx + 1, s = r + 1;
+      I[n++] = p; I[n++] = r; I[n++] = q; I[n++] = q; I[n++] = r; I[n++] = s;
+    }
+    return { P, UV, I, nv };
+  }
+  async function photoJPEG() {
+    const k = Math.min(1, 2048 / Math.max(state.photo.width, state.photo.height));
+    const c = new OffscreenCanvas(Math.round(state.photo.width * k), Math.round(state.photo.height * k)), g = c.getContext("2d");
+    g.imageSmoothingQuality = "high"; g.drawImage(state.photo, 0, 0, c.width, c.height);
+    return new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg", quality: 0.92 })).arrayBuffer());
+  }
+
+  async function toGLB() {
+    const M = exportMesh(400); if (!M) return null;
+    const img = await photoJPEG();
+    const pad4 = (n) => (n + 3) & ~3;
+    const parts = [M.P, M.UV, M.I, img], offs = []; let len = 0;
+    for (const p of parts) { offs.push(len); len = pad4(len + p.byteLength); }
+    const bin = new Uint8Array(len);
+    parts.forEach((p, i) => bin.set(new Uint8Array(p.buffer, p.byteOffset, p.byteLength), offs[i]));
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (let k = 0; k < M.nv; k++) for (let c = 0; c < 3; c++) { const v = M.P[k * 3 + c]; if (v < min[c]) min[c] = v; if (v > max[c]) max[c] = v; }
+    const json = {
+      asset: { version: "2.0", generator: "Pocket Depth" },
+      extensionsUsed: ["KHR_materials_unlit"],
+      scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, name: "Pocket Depth" }],
+      meshes: [{ name: "Photo", primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1 }, indices: 2, material: 0 }] }],
+      materials: [{ name: "Photo", doubleSided: true, extensions: { KHR_materials_unlit: {} },
+        pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 1 } }],
+      textures: [{ source: 0, sampler: 0 }], samplers: [{ magFilter: 9729, minFilter: 9729, wrapS: 33071, wrapT: 33071 }],
+      images: [{ bufferView: 3, mimeType: "image/jpeg" }],
+      buffers: [{ byteLength: len }],
+      bufferViews: [
+        { buffer: 0, byteOffset: offs[0], byteLength: M.P.byteLength, target: 34962 },
+        { buffer: 0, byteOffset: offs[1], byteLength: M.UV.byteLength, target: 34962 },
+        { buffer: 0, byteOffset: offs[2], byteLength: M.I.byteLength, target: 34963 },
+        { buffer: 0, byteOffset: offs[3], byteLength: img.byteLength },
+      ],
+      accessors: [
+        { bufferView: 0, componentType: 5126, count: M.nv, type: "VEC3", min, max },
+        { bufferView: 1, componentType: 5126, count: M.nv, type: "VEC2" },
+        { bufferView: 2, componentType: 5125, count: M.I.length, type: "SCALAR" },
+      ],
+    };
+    let js = new TextEncoder().encode(JSON.stringify(json));
+    const jl = pad4(js.length), jsp = new Uint8Array(jl).fill(0x20); jsp.set(js); js = jsp;
+    const out = new Uint8Array(12 + 8 + jl + 8 + len), dv = new DataView(out.buffer);
+    dv.setUint32(0, 0x46546c67, true); dv.setUint32(4, 2, true); dv.setUint32(8, out.length, true);
+    dv.setUint32(12, jl, true); dv.setUint32(16, 0x4e4f534a, true); out.set(js, 20);
+    dv.setUint32(20 + jl, len, true); dv.setUint32(24 + jl, 0x004e4942, true); out.set(bin, 28 + jl);
+    return new Blob([out], { type: "model/gltf-binary" });
+  }
+
+  async function toUSDZ() {
+    const M = exportMesh(256); if (!M) return null;
+    const img = await photoJPEG();
+    const f = (v) => +v.toFixed(5);
+    const pts = [], st = [], tris = M.I.length / 3;
+    for (let k = 0; k < M.nv; k++) {
+      pts.push(`(${f(M.P[k * 3])}, ${f(M.P[k * 3 + 1])}, ${f(M.P[k * 3 + 2])})`);
+      st.push(`(${f(M.UV[k * 2])}, ${f(1 - M.UV[k * 2 + 1])})`); // USD's st starts at the bottom
+    }
+    const mat = "/PocketDepth/Materials/Photo";
+    const usda = `#usda 1.0
+(
+    defaultPrim = "PocketDepth"
+    metersPerUnit = 1
+    upAxis = "Y"
+)
+
+def Xform "PocketDepth" (
+    assetInfo = { string name = "PocketDepth" }
+    kind = "component"
+)
+{
+    def Mesh "Photo" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        uniform bool doubleSided = 1
+        int[] faceVertexCounts = [${new Array(tris).fill(3).join(",")}]
+        int[] faceVertexIndices = [${Array.from(M.I).join(",")}]
+        rel material:binding = <${mat}>
+        point3f[] points = [${pts.join(", ")}]
+        texCoord2f[] primvars:st = [${st.join(", ")}] (
+            interpolation = "vertex"
+        )
+        uniform token subdivisionScheme = "none"
+    }
+
+    def Scope "Materials"
+    {
+        def Material "Photo"
+        {
+            token outputs:surface.connect = <${mat}/Surface.outputs:surface>
+
+            def Shader "Surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor.connect = <${mat}/Texture.outputs:rgb>
+                float inputs:metallic = 0
+                float inputs:roughness = 1
+                token outputs:surface
+            }
+
+            def Shader "Texture"
+            {
+                uniform token info:id = "UsdUVTexture"
+                asset inputs:file = @photo.jpg@
+                token inputs:sourceColorSpace = "sRGB"
+                float2 inputs:st.connect = <${mat}/Reader.outputs:result>
+                token inputs:wrapS = "clamp"
+                token inputs:wrapT = "clamp"
+                float3 outputs:rgb
+            }
+
+            def Shader "Reader"
+            {
+                uniform token info:id = "UsdPrimvarReader_float2"
+                string inputs:varname = "st"
+                float2 outputs:result
+            }
+        }
+    }
+}
+`;
+    return new Blob([usdzZip([["model.usda", new TextEncoder().encode(usda)], ["photo.jpg", img]])], { type: "model/vnd.usdz+zip" });
+  }
+
+  // USDZ is a plain (stored, uncompressed) zip whose file data starts on 64-byte boundaries.
+  let crcTable = null;
+  function crc32(b) {
+    if (!crcTable) { crcTable = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crcTable[n] = c >>> 0; } }
+    let c = 0xffffffff;
+    for (let i = 0; i < b.length; i++) c = crcTable[(c ^ b[i]) & 255] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+  function usdzZip(files) {
+    const chunks = [], central = []; let off = 0;
+    for (const [name, data] of files) {
+      const nm = new TextEncoder().encode(name), crc = crc32(data);
+      const extra = (64 - ((off + 30 + nm.length + 4) % 64)) % 64 + 4; // pad field so the data is aligned
+      const lh = new Uint8Array(30 + nm.length + extra), d = new DataView(lh.buffer);
+      d.setUint32(0, 0x04034b50, true); d.setUint16(4, 10, true); d.setUint32(14, crc, true);
+      d.setUint32(18, data.length, true); d.setUint32(22, data.length, true);
+      d.setUint16(26, nm.length, true); d.setUint16(28, extra, true); lh.set(nm, 30);
+      d.setUint16(30 + nm.length, 0x1986, true); d.setUint16(32 + nm.length, extra - 4, true);
+      const ch = new Uint8Array(46 + nm.length), e = new DataView(ch.buffer);
+      e.setUint32(0, 0x02014b50, true); e.setUint16(4, 10, true); e.setUint16(6, 10, true); e.setUint32(16, crc, true);
+      e.setUint32(20, data.length, true); e.setUint32(24, data.length, true); e.setUint16(28, nm.length, true);
+      e.setUint32(42, off, true); ch.set(nm, 46);
+      chunks.push(lh, data); central.push(ch); off += lh.length + data.length;
+    }
+    const cdSize = central.reduce((s, c) => s + c.length, 0), end = new Uint8Array(22), q = new DataView(end.buffer);
+    q.setUint32(0, 0x06054b50, true); q.setUint16(8, files.length, true); q.setUint16(10, files.length, true);
+    q.setUint32(12, cdSize, true); q.setUint32(16, off, true);
+    return new Blob([...chunks, ...central, end]);
+  }
+
   return {
+    exportModel(kind) { return kind === "usdz" ? toUSDZ() : toGLB(); },
     invalidate() { dirty = true; if (visible()) { build(); kick(); } },
     show() { if (dirty) build(); kick(); },
     toBlob() { return new Promise((res) => { draw(performance.now()); cv.toBlob(res, "image/png"); }); },
@@ -1248,6 +1440,18 @@ $("split").oninput = (e) => $("stage").style.setProperty("--split", `${e.target.
     const blob = await viewer3d.toBlob(); if (!blob) return;
     save(blob, `${base()}_3d.png`, (t) => { $("d3-note").textContent = t; }, () => showSnapImage(blob));
   };
+  async function saveModel(kind) {
+    const note = (t) => { $("d3-model-note").textContent = t; };
+    if (!state.depth) { note("Make a depth map first."); return; }
+    note("Building the model…");
+    let blob = null;
+    try { blob = await viewer3d.exportModel(kind); } catch (e) { console.error(e); }
+    if (!blob) { note("Couldn't build the model. Try again."); return; }
+    note(`${(blob.size / 1e6).toFixed(1)} MB`);
+    save(blob, `${base()}_3d.${kind}`, note, () => note("Saving files isn't available here."));
+  }
+  $("d3-glb").onclick = () => saveModel("glb");
+  $("d3-usdz").onclick = () => saveModel("usdz");
   $("e-save").onclick = async () => {
     const blob = await editor.toBlob(); if (!blob) return;
     save(blob, `${base()}_${editor.modeName()}.png`, (t) => { $("e-save-note").textContent = t; }, showEditImage);
