@@ -653,6 +653,8 @@ async function run() {
   state.busy = true; $("pick").setAttribute("aria-disabled", "true"); $("save").disabled = true;
   try {
     const cpuOnly = useCPU(state.model, state.res);
+    if (needsFreshStart()) { await freshStart(); return; }
+    viewer3d.trim();
     const session = await getSession(state.model, cpuOnly);
     say("Reading photo…"); progress(null);
     const bitmap = await createImageBitmap(state.file, { imageOrientation: "from-image" });
@@ -665,6 +667,8 @@ async function run() {
     store("pd-inflight", { c: combo(), gpu: state.backend === "WebGPU" });
     const D = await predict(session, bitmap);
     store("pd-inflight", null);
+    if (state.backend === "WebGPU") gpuRuns.add(combo());
+    forgetCrash(combo()); detailNote();
     if (state.photo && state.photo !== bitmap && state.photo.close) state.photo.close();
     state.photo = bitmap; state.isExample = false;
     state.depth = { ...D, outW, outH };
@@ -691,7 +695,7 @@ async function run() {
       say("Refreshing the saved model and trying again…");
     } else {
       state.retried = false;
-      say(unreadable(e) ? "This device keeps losing the saved files. Close other tabs, then reload the page and try again." : state.model === "large" ? "Large ran out of memory on this device. Use Small; it handles 770 px on the CPU." : (e && e.message ? e.message : "Something went wrong. Try again, or switch to Small."), true);
+      say(unreadable(e) ? "This device keeps losing the saved files. Close other tabs, then reload the page and try again." : state.model === "large" && memoryError(e) ? `Large at ${state.res} px ran out of memory. Close other apps and tabs and try again${state.res > 518 ? ", or use 518 px" : ""}.` : (e && e.message ? e.message : "Something went wrong. Try again, or switch to Small."), true);
     }
   } finally {
     progress(null); state.busy = false; $("pick").removeAttribute("aria-disabled"); offlineStatus();
@@ -1315,6 +1319,7 @@ def Xform "PocketDepth" (
     exportModel(kind) { return kind === "usdz" ? toUSDZ() : toGLB(); },
     invalidate() { dirty = true; if (visible()) { build(); kick(); } },
     show() { if (dirty) build(); kick(); },
+    trim() { if (!visible() && cv.width > 1) { cv.width = 1; cv.height = 1; } },
     toBlob() { return new Promise((res) => { draw(performance.now()); cv.toBlob(res, "image/png"); }); },
   };
 })();
@@ -1349,7 +1354,7 @@ function chooseModel(which) {
   // free the other model's memory on phones
   releaseSessions(null);
   detailNote();
-  if (state.file && !state.busy) run();
+  if (state.file && !state.busy && !state.resuming) run();
 }
 $("m-small").onclick = () => chooseModel("small");
 $("m-large").onclick = () => chooseModel("large");
@@ -1380,6 +1385,7 @@ async function keepFile(f) {
   const buf = await f.arrayBuffer();
   return new File([buf], f.name || "photo.jpg", { type: f.type || "image/jpeg" });
 }
+function memoryError(e) { return /memory|alloc|device (is |was )?lost|RangeError/i.test(`${e && e.name} ${e && e.message}`); }
 function unreadable(e) { return e && (e.name === "NotFoundError" || e.name === "NotReadableError" || /can ?not be found|could not be read/i.test(String(e.message))); }
 
 $("photo").onchange = async (e) => {
@@ -1468,22 +1474,67 @@ function detailNote() {
   const el = $("detail-note");
   el.hidden = !useCPU(state.model, state.res);
   el.textContent = `${state.res} px runs on the CPU on this device so it doesn't run out of memory. It's slower but gives the same result.`;
-  $("large-warn").hidden = !load("pd-large-crashed", false);
+  const crashedHere = crashes().includes(combo("large", state.res));
+  $("large-warn").hidden = !crashedHere;
+  $("large-warn").textContent = `Large at ${state.res} px ran out of memory on this device last time. Closing other apps and tabs gives it more room${state.res > 518 ? "; 518 px needs much less" : ""}.`;
 }
+
+// ---------- GPU memory between runs ----------
+// ONNX Runtime keeps freed GPU buffers for reuse, sized to each setting, and nothing short of a page
+// reload hands them back. Large at high detail needs the most, so it starts on a clean page when
+// anything else has run on the GPU since the page opened. The photo and settings carry over.
+const gpuRuns = new Set();
+const crashes = () => load("pd-crashes", []);
+function forgetCrash(c) { const l = crashes(); if (l.includes(c)) store("pd-crashes", l.filter((x) => x !== c)); }
+function needsFreshStart() {
+  return state.model === "large" && state.res > 518 && [...gpuRuns].some((c) => c !== combo());
+}
+async function freshStart() {
+  say("Freeing memory for Large at " + state.res + " px…"); progress(null);
+  const buf = await state.file.arrayBuffer();
+  if (!(await cachePut("resume-photo", buf))) { gpuRuns.clear(); state.again = true; return; } // can't carry the photo over; just try
+  store("pd-resume", { model: state.model, res: state.res, cmap: state.cmap, name: state.file.name, type: state.file.type });
+  location.reload();
+  await new Promise(() => {}); // the page is going away
+}
+async function resumeAfterFreshStart() {
+  const r = load("pd-resume", null);
+  if (!r) return;
+  store("pd-resume", null);
+  const buf = await readCached("resume-photo");
+  await cacheDel("resume-photo");
+  if (!buf) { say("Pick the photo again to run Large at " + r.res + " px.", true); return; }
+  state.resuming = true;
+  const pick = (sel) => document.querySelector(sel);
+  if (pick(`[data-cmap="${r.cmap}"]`)) { state.cmap = r.cmap; setPressed("[data-cmap]", pick(`[data-cmap="${r.cmap}"]`)); legend(); }
+  if (pick(`[data-res="${r.res}"]`)) { state.res = r.res; setPressed("[data-res]", pick(`[data-res="${r.res}"]`)); }
+  chooseModel(r.model);
+  state.resuming = false;
+  state.file = new File([buf], r.name || "photo.jpg", { type: r.type || "image/jpeg" });
+  run();
+}
+// iPadOS may close the app while it's in the background; that isn't this setting's fault.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) return;
+  const f = load("pd-inflight", null);
+  if (f) store("pd-inflight", { ...f, bg: true });
+});
 (() => {
   const crashed = load("pd-inflight", null);
   store("pd-inflight", null);
   if (!crashed) return;
   const [model, res] = crashed.c.split(":");
-  if (model === "large") store("pd-large-crashed", true);
+  if (crashed.bg) { say("Pocket Depth was closed while it worked in the background. Pick the photo again."); return; }
+  if (model === "large") store("pd-crashes", [...new Set([...crashes(), crashed.c])]);
   else if (crashed.gpu) markGpuTrouble(crashed.c);
   say(model === "large"
-    ? "Pocket Depth restarted because Large needed more memory than this device allows. Use Small instead."
+    ? `Pocket Depth restarted because Large at ${res} px needed more memory than this device had free. Close other apps and tabs and try again${+res > 518 ? ", or use 518 px" : ""}.`
     : crashed.gpu
       ? `Pocket Depth restarted because the GPU ran out of memory at ${res} px. From now on ${res} px runs on the CPU here. Pick the photo again.`
       : `Pocket Depth restarted because this device ran out of memory at ${res} px. Try a lower detail.`, true);
 })();
 detailNote();
+resumeAfterFreshStart();
 
 // ---------- offline ----------
 async function offlineStatus() {
